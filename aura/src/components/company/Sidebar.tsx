@@ -11,13 +11,25 @@ import {
   BarChart3, 
   LogOut,
   Menu,
-  X
+  X,
+  Zap
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useState } from "react";
+
+function toDisplayName(user: { displayName?: string | null; email?: string | null } | null): string {
+  if (user?.displayName) return user.displayName;
+  if (user?.email) {
+    const local = user.email.split("@")[0];
+    return local
+      .split(/[._-]/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+  }
+  return "Admin";
+}
 
 interface SidebarProps {
   className?: string;
@@ -38,12 +50,16 @@ export default function Sidebar({ className }: SidebarProps) {
 
   const SidebarContent = () => (
     <>
-      <div className="h-16 flex items-center px-6 border-b border-gray-200 dark:border-zinc-800">
-        <div className="flex items-center gap-2 font-bold text-xl tracking-tight text-gray-900 dark:text-gray-100">
-          <div className="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center text-white text-lg font-bold shadow-sm">
-            A
+      <div className="h-16 flex items-center px-5 border-b border-slate-200">
+        <div className="flex items-center gap-2.5">
+          <div className="relative w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 to-blue-500 flex items-center justify-center shadow-md shadow-indigo-500/20 flex-shrink-0">
+            <Zap className="w-4 h-4 text-white" strokeWidth={2.5} />
+            <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-white" />
           </div>
-          Aura
+          <div className="flex flex-col leading-tight">
+            <span className="text-sm font-bold text-slate-900 tracking-tight">Aura AI</span>
+            <span className="text-[10px] font-medium tracking-[0.14em] text-slate-400 uppercase">Company Portal</span>
+          </div>
         </div>
       </div>
 
@@ -57,34 +73,29 @@ export default function Sidebar({ className }: SidebarProps) {
               href={item.href}
               onClick={() => setOpen(false)}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors my-1",
+                "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors my-1",
                 isActive 
-                  ? "bg-indigo-500 text-white shadow-sm" 
-                  : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-zinc-800/50 hover:text-gray-900 dark:hover:text-gray-100"
+                  ? "bg-indigo-600 text-white shadow-sm shadow-indigo-500/20" 
+                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
               )}
             >
-              <Icon className={cn("w-5 h-5", isActive ? "text-white" : "text-gray-400 dark:text-gray-500")} />
+              <Icon className={cn("w-5 h-5", isActive ? "text-white" : "text-slate-400")} />
               {item.name}
             </Link>
           );
         })}
       </nav>
 
-      <div className="p-4 border-t border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
-        <div className="flex items-center gap-3 mb-4">
-          <Avatar className="w-10 h-10 border border-gray-200 dark:border-zinc-800">
-            <AvatarImage src={user?.photoURL || ""} />
-            <AvatarFallback className="bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
-              {user?.displayName?.charAt(0) || user?.email?.charAt(0)?.toUpperCase() || "A"}
-            </AvatarFallback>
-          </Avatar>
+      <div className="p-4 border-t border-slate-200 bg-white">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-blue-400 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+            {toDisplayName(user).charAt(0).toUpperCase()}
+          </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate text-gray-900 dark:text-gray-100">
-              {user?.displayName || "Admin User"}
+            <p className="text-sm font-medium truncate text-slate-900">
+              {toDisplayName(user)}
             </p>
-            <p className="text-xs truncate text-gray-500 dark:text-gray-400">
-              {user?.email || "admin@company.com"}
-            </p>
+            <p className="text-xs truncate text-slate-400">Company Admin</p>
           </div>
         </div>
         <button 
@@ -92,9 +103,9 @@ export default function Sidebar({ className }: SidebarProps) {
             setOpen(false);
             signOut();
           }}
-          className="flex items-center justify-center gap-2 px-3 py-2 w-full rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-900 transition-colors"
+          className="flex items-center justify-center gap-2 px-3 py-2 w-full rounded-xl text-sm font-medium text-slate-600 border border-transparent hover:border-slate-200 hover:bg-slate-50 transition-colors"
         >
-          <LogOut className="w-4 h-4 text-gray-400" />
+          <LogOut className="w-4 h-4 text-slate-400" />
           Sign out
         </button>
       </div>
@@ -104,7 +115,7 @@ export default function Sidebar({ className }: SidebarProps) {
   return (
     <>
       {/* Mobile Header */}
-      <div className="lg:hidden h-16 border-b border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex items-center px-4">
+      <div className="lg:hidden h-16 border-b border-slate-200 bg-white flex items-center px-4">
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
             <Button variant="ghost" size="icon" className="lg:hidden">
@@ -116,16 +127,16 @@ export default function Sidebar({ className }: SidebarProps) {
             <SidebarContent />
           </SheetContent>
         </Sheet>
-        <div className="flex items-center gap-2 font-bold text-xl tracking-tight text-gray-900 dark:text-gray-100 ml-4">
-          <div className="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center text-white text-lg font-bold shadow-sm">
-            A
+        <div className="flex items-center gap-2.5 ml-4">
+          <div className="relative w-7 h-7 rounded-xl bg-gradient-to-br from-indigo-600 to-blue-500 flex items-center justify-center shadow-md shadow-indigo-500/20">
+            <Zap className="w-3.5 h-3.5 text-white" strokeWidth={2.5} />
           </div>
-          Aura
+          <span className="text-sm font-bold text-slate-900 tracking-tight">Aura AI</span>
         </div>
       </div>
 
       {/* Desktop Sidebar */}
-      <div className={cn("hidden lg:flex w-64 border-r border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex-col h-full flex-shrink-0", className)}>
+      <div className={cn("hidden lg:flex w-64 border-r border-slate-200 bg-white flex-col h-full flex-shrink-0", className)}>
         <SidebarContent />
       </div>
     </>

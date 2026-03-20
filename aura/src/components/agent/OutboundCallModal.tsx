@@ -8,6 +8,18 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Phone, Loader2, Sparkles } from "lucide-react";
 
+const COUNTRY_OPTIONS = [
+  { value: "+91", label: "🇮🇳 +91" },
+  { value: "+1", label: "🇺🇸 +1" },
+  { value: "+44", label: "🇬🇧 +44" },
+  { value: "+61", label: "🇦🇺 +61" },
+  { value: "+971", label: "🇦🇪 +971" },
+];
+
+const COUNTRY_CODES_DESC = COUNTRY_OPTIONS.map((c) => c.value).sort(
+  (a, b) => b.length - a.length
+);
+
 interface OutboundCallModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -25,6 +37,41 @@ export function OutboundCallModal({ isOpen, onClose, onCall, isDialerReady }: Ou
   const [contacts, setContacts] = useState<{ name: string; phone: string }[]>([]);
   const [suggestions, setSuggestions] = useState<{ name: string; phone: string }[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+
+  const parsePhoneParts = (value: string, fallbackCountryCode: string) => {
+    const raw = String(value || "").trim();
+    const digits = raw.replace(/\D/g, "");
+
+    if (!digits) {
+      return { nextCountryCode: fallbackCountryCode, nextToPhone: "" };
+    }
+
+    if (raw.startsWith("+")) {
+      const normalized = raw.replace(/[^\d+]/g, "");
+      const matchedCode = COUNTRY_CODES_DESC.find((code) =>
+        normalized.startsWith(code)
+      );
+
+      if (matchedCode) {
+        const localDigits = normalized
+          .slice(matchedCode.length)
+          .replace(/\D/g, "");
+        return { nextCountryCode: matchedCode, nextToPhone: localDigits };
+      }
+
+      return { nextCountryCode: fallbackCountryCode, nextToPhone: digits };
+    }
+
+    const fallbackDigits = fallbackCountryCode.replace("+", "");
+    if (digits.startsWith(fallbackDigits) && digits.length > fallbackDigits.length) {
+      return {
+        nextCountryCode: fallbackCountryCode,
+        nextToPhone: digits.slice(fallbackDigits.length),
+      };
+    }
+
+    return { nextCountryCode: fallbackCountryCode, nextToPhone: digits };
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -55,24 +102,10 @@ export function OutboundCallModal({ isOpen, onClose, onCall, isDialerReady }: Ou
 
   const handleToPhoneChange = (val: string) => {
     const raw = val.trim();
-    const digits = raw.replace(/\D/g, "");
+    const parsed = parsePhoneParts(raw, countryCode);
 
-    // Try to detect country code from input
-    const countryMatch = raw.match(/^\+(\d{1,3})/);
-    if (countryMatch) {
-      const detectedCode = `+${countryMatch[1]}`;
-      setCountryCode(detectedCode);
-      // Strip country code digits from phone display
-      const codeDigits = countryMatch[1].length;
-      if (digits.length > codeDigits) {
-        setToPhone(digits.substring(codeDigits));
-      } else {
-        setToPhone("");
-      }
-    } else {
-      // No country code prefix, just use the digits
-      setToPhone(digits);
-    }
+    setCountryCode(parsed.nextCountryCode);
+    setToPhone(parsed.nextToPhone);
 
     // Filter suggestions based on original input
     const query = raw.toLowerCase();
@@ -89,39 +122,9 @@ export function OutboundCallModal({ isOpen, onClose, onCall, isDialerReady }: Ou
   };
 
   const selectSuggestion = (phone: string) => {
-    const raw = phone.trim();
-    const digits = raw.replace(/\D/g, "");
-
-    if (!digits) {
-      setToPhone("");
-      setShowSuggestions(false);
-      return;
-    }
-
-    // If the selected contact has a country prefix, detect and use it
-    const countryMatch = raw.match(/^\+(\d{1,3})/);
-    if (countryMatch) {
-      const detectedCode = `+${countryMatch[1]}`;
-      const codeDigits = countryMatch[1].length;
-      setCountryCode(detectedCode);
-      // Strip the country code digits from the phone number
-      if (digits.length > codeDigits) {
-        setToPhone(digits.substring(codeDigits));
-      } else {
-        setToPhone("");
-      }
-      setShowSuggestions(false);
-      return;
-    }
-
-    // If contact phone number matches current country code prefix, strip it
-    const currentCodeDigits = countryCode.replace("+", "");
-    if (digits.startsWith(currentCodeDigits) && digits.length > currentCodeDigits.length) {
-      setToPhone(digits.substring(currentCodeDigits.length));
-    } else {
-      // No country code prefix detected, use digits as-is
-      setToPhone(digits);
-    }
+    const parsed = parsePhoneParts(phone, countryCode);
+    setCountryCode(parsed.nextCountryCode);
+    setToPhone(parsed.nextToPhone);
 
     setShowSuggestions(false);
   };
@@ -129,15 +132,10 @@ export function OutboundCallModal({ isOpen, onClose, onCall, isDialerReady }: Ou
   const handleDial = (e: React.FormEvent) => {
     e.preventDefault();
     if (!toPhone || !fromPhone) return;
-    
-    // Normalize destination to E.164 Twilio format
-    let rawPhone = toPhone.replace(/\D/g, "");
-    let formattedTo = rawPhone.startsWith("+") ? rawPhone : `${countryCode}${rawPhone}`;
-    
-    // Safety check for common mistakes (e.g. double country code)
-    if (rawPhone.startsWith(countryCode.replace("+", ""))) {
-       formattedTo = `+${rawPhone}`;
-    }
+
+    // Normalize destination to E.164 Twilio format.
+    const rawPhone = toPhone.replace(/\D/g, "");
+    const formattedTo = `${countryCode}${rawPhone}`;
 
     onCall({ customerPhone: formattedTo, twilioCallerId: fromPhone, context });
     onClose();
@@ -183,11 +181,11 @@ export function OutboundCallModal({ isOpen, onClose, onCall, isDialerReady }: Ou
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-slate-900 border-slate-800">
-                  <SelectItem value="+91">🇮🇳 +91</SelectItem>
-                  <SelectItem value="+1">🇺🇸 +1</SelectItem>
-                  <SelectItem value="+44">🇬🇧 +44</SelectItem>
-                  <SelectItem value="+61">🇦🇺 +61</SelectItem>
-                  <SelectItem value="+971">🇦🇪 +971</SelectItem>
+                  {COUNTRY_OPTIONS.map((country) => (
+                    <SelectItem key={country.value} value={country.value}>
+                      {country.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <Input

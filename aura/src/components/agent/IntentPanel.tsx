@@ -1,23 +1,34 @@
 "use client";
 
 import { useMemo } from "react";
-import { BrainCircuit, Target, TrendingUp, Lightbulb } from "lucide-react";
+import { BrainCircuit, Target, Lightbulb } from "lucide-react";
 import { useCallStore } from "@/store/callStore";
 import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
 
 function scoreColor(score: number | null) {
   if (score === null) return "text-slate-400";
-  if (score >= 0.75) return "text-emerald-400";
-  if (score >= 0.5) return "text-amber-400";
-  return "text-red-400";
+  if (score >= 0.75) return "text-emerald-600";
+  if (score >= 0.5) return "text-amber-600";
+  return "text-red-600";
 }
 
-function scoreBg(score: number | null) {
-  if (score === null) return "bg-slate-500/20 border-slate-500/30";
-  if (score >= 0.75) return "bg-emerald-500/15 border-emerald-500/30";
-  if (score >= 0.5) return "bg-amber-500/15 border-amber-500/30";
-  return "bg-red-500/15 border-red-500/30";
+function scoreBadge(score: number | null) {
+  if (score === null) return "bg-slate-50 border-slate-200 text-slate-500";
+  if (score >= 0.75) return "bg-emerald-50 border-emerald-200 text-emerald-700";
+  if (score >= 0.5) return "bg-amber-50 border-amber-200 text-amber-700";
+  return "bg-red-50 border-red-200 text-red-700";
 }
+
+const containerVariants = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.07 } },
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 8 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.2 } },
+};
 
 export function IntentPanel() {
   const intent = useCallStore((s) => s.intent);
@@ -40,125 +51,103 @@ export function IntentPanel() {
   };
 
   return (
-    <div className="rounded-2xl border border-white/[0.06] bg-[#0a0e1a]/90 backdrop-blur-md overflow-hidden shadow-2xl">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-white/[0.02] border-b border-white/[0.08]">
+    <div className="mt-3">
+      {/* Section header */}
+      <div className="flex items-center justify-between py-3 border-b border-slate-200">
         <div className="flex items-center gap-2">
-          <div className="h-6 w-6 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
-            <BrainCircuit className="h-3.5 w-3.5 text-indigo-400" />
-          </div>
-          <span className="text-[11px] font-bold text-white tracking-widest uppercase">
+          <BrainCircuit className="h-3.5 w-3.5 text-slate-400" />
+          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
             Intent Detection
           </span>
         </div>
-        <div className={cn(
-          "flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold capitalize",
-          hasLiveData ? scoreBg(intentConfidence) : "bg-white/[0.04] border-white/[0.06]"
-        )}>
-          <span className={hasLiveData ? scoreColor(intentConfidence) : "text-slate-500"}>
-            {intent ? intent.replace(/_/g, " ") : "Waiting For Call…"}
+        {hasLiveData && (
+          <span className={cn(
+            "text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize",
+            scoreBadge(intentConfidence)
+          )}>
+            {intent?.replace(/_/g, " ")}
           </span>
-        </div>
+        )}
       </div>
 
-      <div className="p-4 space-y-3">
-        {/* Disposition badge */}
+      <motion.div
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        className="py-3 space-y-3"
+      >
+        {/* Disposition */}
         {customerDisposition && (
-          <div className={cn(
-            "flex items-center gap-2 px-3 py-2 rounded-xl border text-[12px] font-medium",
-            customerDisposition === "angry" ? "bg-red-500/10 border-red-500/20 text-red-400" :
-            customerDisposition === "satisfied" ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" :
-            customerDisposition === "needs_change" ? "bg-amber-500/10 border-amber-500/20 text-amber-400" :
-            "bg-white/[0.04] border-white/[0.06] text-slate-400"
-          )}>
-            <span>{dispositionEmoji[customerDisposition] || "😐"}</span>
-            <span className="capitalize">{customerDisposition.replace(/_/g, " ")}</span>
-          </div>
+          <motion.div variants={itemVariants} className="flex items-center gap-2">
+            <span className="text-base leading-none">{dispositionEmoji[customerDisposition] || "😐"}</span>
+            <span className="text-[12px] text-slate-600 capitalize">{customerDisposition.replace(/_/g, " ")}</span>
+          </motion.div>
         )}
 
         {/* Confidence bar */}
-        <div className="space-y-1.5">
+        <motion.div variants={itemVariants} className="space-y-1">
           <div className="flex items-center justify-between text-[11px]">
-            <span className="text-slate-400 font-medium">Intent Confidence</span>
-            <span className={cn("font-mono font-bold text-[12px]", scoreColor(intentConfidence))}>
+            <span className="text-slate-400">Confidence</span>
+            <span className={cn("font-mono font-bold text-[11px]", scoreColor(intentConfidence))}>
               {intentConfidence === null ? "—" : `${confidencePct}%`}
             </span>
           </div>
-          <div className="h-2 rounded-full bg-white/[0.04] border border-white/[0.06] overflow-hidden">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-400 transition-all duration-700"
-              style={{ width: `${intentConfidence === null ? 0 : confidencePct}%` }}
+          <div className="h-1 rounded-full bg-slate-100 overflow-hidden">
+            <motion.div
+              className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500"
+              initial={{ width: 0 }}
+              animate={{ width: `${intentConfidence === null ? 0 : confidencePct}%` }}
+              transition={{ duration: 0.6, ease: "easeOut" }}
             />
           </div>
-        </div>
+        </motion.div>
 
         {/* Policy match bar */}
-        <div className="space-y-1.5">
+        <motion.div variants={itemVariants} className="space-y-1">
           <div className="flex items-center justify-between text-[11px]">
-            <span className="flex items-center gap-1 text-slate-400 font-medium">
+            <span className="flex items-center gap-1 text-slate-400">
               <Target className="h-3 w-3" /> Policy Match
             </span>
-            <span className={cn("font-mono font-bold text-[12px]", scoreColor(policyMatchScore))}>
+            <span className={cn("font-mono font-bold text-[11px]", scoreColor(policyMatchScore))}>
               {policyMatchScore === null ? "—" : `${policyPct}%`}
             </span>
           </div>
-          <div className="h-2 rounded-full bg-white/[0.04] border border-white/[0.06] overflow-hidden">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-700"
-              style={{ width: `${policyMatchScore === null ? 0 : policyPct}%` }}
+          <div className="h-1 rounded-full bg-slate-100 overflow-hidden">
+            <motion.div
+              className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500"
+              initial={{ width: 0 }}
+              animate={{ width: `${policyMatchScore === null ? 0 : policyPct}%` }}
+              transition={{ duration: 0.6, ease: "easeOut", delay: 0.1 }}
             />
           </div>
-        </div>
+        </motion.div>
 
-        {/* Inferred need */}
-        {inferredNeed ? (
-          <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-            <Lightbulb className="h-3.5 w-3.5 text-indigo-400 mt-0.5 shrink-0" />
-            <p className="text-[12px] text-slate-200 leading-relaxed">{inferredNeed}</p>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-            <Lightbulb className="h-3.5 w-3.5 text-slate-600" />
-            <p className="text-[12px] text-slate-600">Customer intent will appear here during a live call</p>
-          </div>
-        )}
+        {/* Inferred need — plain text */}
+        <motion.div variants={itemVariants} className="flex items-start gap-1.5">
+          <Lightbulb className="h-3.5 w-3.5 text-slate-300 mt-0.5 shrink-0" />
+          <p className="text-[11.5px] leading-relaxed text-slate-500">
+            {inferredNeed || "Customer intent will appear during a live call"}
+          </p>
+        </motion.div>
 
-        {/* Trend chart */}
-        <div className="pt-1">
-          <div className="flex items-center gap-1.5 mb-2">
-            <TrendingUp className="h-3 w-3 text-slate-500" />
-            <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
-              Confidence Trend
-            </p>
-            <div className="ml-auto flex items-center gap-2 text-[9px] text-slate-600">
-              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-indigo-500 inline-block"/>intent</span>
-              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-emerald-500 inline-block"/>policy</span>
-            </div>
-          </div>
-          {trendPoints.length > 0 ? (
-            <div className="h-12 flex items-end gap-0.5 px-1">
+        {/* Trend sparkline */}
+        {trendPoints.length > 0 && (
+          <motion.div variants={itemVariants} className="pt-1">
+            <div className="flex items-end gap-0.5 h-7">
               {trendPoints.map((point, idx) => {
                 const conf = Math.round((point.confidence || 0) * 100);
                 const match = Math.round((point.policyMatchScore || 0) * 100);
                 return (
-                  <div
-                    key={`${point.timestamp}-${idx}`}
-                    className="flex-1 flex items-end gap-[1px]"
-                    title={`${point.intent}: confidence ${conf}%, policy ${match}%`}
-                  >
-                    <div className="w-1/2 rounded-t-sm bg-indigo-500/70" style={{ height: `${Math.max(4, Math.round(conf * 0.46))}px` }} />
-                    <div className="w-1/2 rounded-t-sm bg-emerald-500/70" style={{ height: `${Math.max(4, Math.round(match * 0.46))}px` }} />
+                  <div key={`${point.timestamp}-${idx}`} className="flex-1 flex items-end gap-[1px]">
+                    <div className="w-1/2 rounded-t-sm bg-indigo-200" style={{ height: `${Math.max(2, Math.round(conf * 0.25))}px` }} />
+                    <div className="w-1/2 rounded-t-sm bg-emerald-200" style={{ height: `${Math.max(2, Math.round(match * 0.25))}px` }} />
                   </div>
                 );
               })}
             </div>
-          ) : (
-            <div className="h-12 flex items-center justify-center rounded-xl bg-white/[0.02] border border-white/[0.04]">
-              <p className="text-[10px] text-slate-600">Trend populates during a live call</p>
-            </div>
-          )}
-        </div>
-      </div>
+          </motion.div>
+        )}
+      </motion.div>
     </div>
   );
 }

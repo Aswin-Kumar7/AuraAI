@@ -23,14 +23,14 @@ export function KnowledgeCard() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -8 }}
-        className="rounded-xl border border-indigo-500/15 bg-indigo-500/[0.05] p-3 space-y-2"
+        className="space-y-2"
       >
         <button
           onClick={() => setExpanded(!expanded)}
           className="flex items-center justify-between w-full"
         >
-          <div className="flex items-center gap-2 text-xs font-semibold text-indigo-400">
-            <div className="h-6 w-6 rounded-lg bg-indigo-500/20 flex items-center justify-center">
+          <div className="flex items-center gap-2 text-xs font-semibold text-indigo-600">
+            <div className="h-6 w-6 rounded-lg bg-indigo-100 flex items-center justify-center">
               <BookOpen className="h-3 w-3" />
             </div>
             Policy Insight
@@ -45,13 +45,13 @@ export function KnowledgeCard() {
         </button>
 
         {intent && (
-          <p className="text-[10px] uppercase tracking-wide text-indigo-300/80">
+          <p className="text-[10px] uppercase tracking-wide text-indigo-500">
             Intent: {intent.replace(/_/g, " ")}
           </p>
         )}
 
         {inferredNeed && (
-          <p className="text-[11px] text-slate-300/90 leading-relaxed">
+          <p className="text-[11px] text-slate-600 leading-relaxed">
             Customer likely needs: {inferredNeed}
           </p>
         )}
@@ -59,7 +59,7 @@ export function KnowledgeCard() {
         {displaySnippet && (
           <p
             className={cn(
-              "text-[12px] leading-relaxed text-white/70 transition-all duration-200",
+              "text-[12px] leading-relaxed text-slate-700 transition-all duration-200",
               expanded ? "" : "line-clamp-2"
             )}
           >

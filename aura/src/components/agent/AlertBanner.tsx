@@ -38,16 +38,16 @@ export function AlertBanner({ forceShow }: AlertBannerProps) {
         className={cn(
           "rounded-xl px-3.5 py-3 text-xs flex items-start gap-2.5 border relative",
           isCompliance
-            ? "bg-red-500/10 border-red-500/30 text-red-300"
-            : "bg-amber-500/10 border-amber-500/30 text-amber-300"
+            ? "bg-red-50 border-red-200 text-red-700"
+            : "bg-amber-50 border-amber-200 text-amber-700"
         )}
       >
         <div
           className={cn(
             "h-7 w-7 rounded-lg shrink-0 flex items-center justify-center",
             isCompliance
-              ? "bg-red-500/20"
-              : "bg-amber-500/20"
+              ? "bg-red-100"
+              : "bg-amber-100"
           )}
         >
           {isCompliance ? (
@@ -77,7 +77,7 @@ export function AlertBanner({ forceShow }: AlertBannerProps) {
         <div
           className={cn(
             "absolute inset-0 rounded-xl border-2 animate-pulse pointer-events-none",
-            isCompliance ? "border-red-500/20" : "border-amber-500/20"
+            isCompliance ? "border-red-200" : "border-amber-200"
           )}
         />
       </motion.div>

@@ -1,9 +1,21 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, TrendingUp, Sparkles, Brain, Clock, ShieldCheck } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Sparkles, Brain, Clock, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Tooltip as ChartTooltip,
+  Legend,
+} from "chart.js";
+import { Bar } from "react-chartjs-2";
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, ChartTooltip, Legend);
 
 export default function InsightsPage() {
   const [data, setData] = useState<any>(null);
@@ -25,24 +37,85 @@ export default function InsightsPage() {
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center p-6">
-        <Loader2 className="h-8 w-8 text-indigo-500 animate-spin" />
+      <div className="p-6 max-w-[1200px] mx-auto space-y-5">
+        <div className="space-y-1.5">
+          <Skeleton className="h-7 w-56 bg-slate-200" />
+          <Skeleton className="h-4 w-80 bg-slate-200" />
+        </div>
+        <div className="grid grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32 rounded-xl bg-slate-200" />)}
+        </div>
+        <div className="grid grid-cols-3 gap-5">
+          <Skeleton className="col-span-2 h-72 rounded-xl bg-slate-200" />
+          <Skeleton className="h-72 rounded-xl bg-slate-200" />
+        </div>
       </div>
     );
   }
 
   if (!data) return null;
 
+  const chartData = {
+    labels: data.chartData?.map((pt: any) => pt.day) || [],
+    datasets: [
+      {
+        label: "Acceptance Rate (%)",
+        data: data.chartData?.map((pt: any) => pt.acceptanceRate) || [],
+        backgroundColor: "rgba(99, 102, 241, 0.12)",
+        borderColor: "rgb(99, 102, 241)",
+        borderWidth: 2,
+        borderRadius: 6,
+        hoverBackgroundColor: "rgba(99, 102, 241, 0.25)",
+      },
+    ],
+  };
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: "#fff",
+        titleColor: "#1e293b",
+        bodyColor: "#64748b",
+        borderColor: "#e2e8f0",
+        borderWidth: 1,
+        padding: 10,
+        callbacks: {
+          label: (ctx: any) => {
+            const pt = data.chartData?.[ctx.dataIndex];
+            return [`${ctx.raw}% acceptance`, `${pt?.callsHandled ?? 0} calls handled`];
+          },
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: { display: false },
+        border: { display: false },
+        ticks: { color: "#94a3b8", font: { size: 11 } },
+      },
+      y: {
+        beginAtZero: true,
+        max: 100,
+        grid: { color: "#f1f5f9" },
+        border: { display: false },
+        ticks: { color: "#94a3b8", font: { size: 11 }, callback: (v: any) => `${v}%` },
+      },
+    },
+  };
+
+  const maxIssueCount = Math.max(...(data.topIssues?.map((i: any) => i.count) || [1]), 1);
+
   return (
-    <div className="p-6 max-w-[1200px] mx-auto space-y-6">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold tracking-tight text-white/90 flex items-center gap-2">
-          <Sparkles className="h-6 w-6 text-indigo-400" />
+    <div className="p-6 max-w-[1200px] mx-auto space-y-5">
+      <div>
+        <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+          <Sparkles className="h-5 w-5 text-indigo-500" />
           AI Performance Insights
         </h1>
-        <p className="text-sm text-slate-400 mt-1">
-          Review your Copilot usage impact and AI-driven skill improvement.
-        </p>
+        <p className="text-sm text-slate-500 mt-0.5">Review your Copilot usage impact and AI-driven skill improvement.</p>
       </div>
 
       {/* Overview Grid */}
@@ -53,6 +126,7 @@ export default function InsightsPage() {
           value={`${data.resolutionRate}%`}
           subtitle="Past 30 days"
           trend="+5%"
+          trendPositive={true}
           color="emerald"
         />
         <StatCard
@@ -76,67 +150,51 @@ export default function InsightsPage() {
           icon={ShieldCheck}
           title="Detected Tone"
           value={data.topTone}
-          subtitle="Most common AI evaluation"
+          subtitle="Most common evaluation"
           color="amber"
           trend="Consistent"
         />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
-        {/* Chart (Mock visualization) */}
-        <div className="md:col-span-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-6">
-          <h3 className="text-sm font-semibold text-white/80 mb-6 flex items-center justify-between">
-            Copilot Acceptance Trend
-            <span className="text-xs bg-indigo-500/10 text-indigo-400 px-2 py-1 rounded-full border border-indigo-500/20">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        {/* Chart.js Bar Chart */}
+        <div className="md:col-span-2 rounded-xl border border-slate-200 bg-white shadow-sm p-6">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-sm font-semibold text-slate-800">Copilot Acceptance Trend</h3>
+            <span className="text-xs bg-indigo-50 text-indigo-600 px-2.5 py-1 rounded-full border border-indigo-100 font-medium">
               Past 7 Days
             </span>
-          </h3>
-          <div className="flex items-end justify-between h-48 mt-4 gap-2">
-            {data.chartData?.map((pt: any, i: number) => {
-              const height = `${pt.acceptanceRate}%`;
-              return (
-                <div key={i} className="flex-1 flex flex-col items-center group relative">
-                  <div
-                    className="w-full max-w-10 bg-indigo-500/20 border-t-2 border-indigo-500 rounded-t-sm transition-all duration-300 group-hover:bg-indigo-500/40 relative"
-                    style={{ height }}
-                  >
-                    {/* Tooltip */}
-                    <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-[#0a0e1a] border border-white/[0.08] text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 text-white/90 shadow-xl">
-                      {pt.acceptanceRate}% Rate
-                      <br />
-                      <span className="text-slate-500 text-[10px]">{pt.callsHandled} calls</span>
-                    </div>
-                  </div>
-                  <span className="mt-2 text-xs text-slate-500 uppercase font-mono tracking-wider">
-                    {pt.day}
-                  </span>
-                </div>
-              );
-            })}
+          </div>
+          <div style={{ height: 200 }}>
+            <Bar data={chartData} options={chartOptions as any} />
           </div>
         </div>
 
-        {/* Top Issues List */}
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-6">
-          <h3 className="text-sm font-semibold text-white/80 mb-6">Common Issues Resolved</h3>
+        {/* Top Issues with progress bars */}
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-6">
+          <h3 className="text-sm font-semibold text-slate-800 mb-5">Common Issues Resolved</h3>
           <div className="space-y-4">
-            {data.topIssues?.map((issue: any, index: number) => (
-              <div key={index} className="flex items-center justify-between">
-                <div className="flex flex-col">
-                  <span className="text-sm font-medium text-white/90">
-                    {issue.name.replace(/([A-Z])/g, " $1").trim()}
-                  </span>
-                  <span className="text-xs text-slate-500">
-                    {Math.round((issue.count / data.totalCalls) * 100) || 0}% of volume
-                  </span>
+            {data.topIssues?.map((issue: any, index: number) => {
+              const pct = Math.round((issue.count / maxIssueCount) * 100);
+              return (
+                <div key={index}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-medium text-slate-700 truncate max-w-[140px]">
+                      {issue.name.replace(/([A-Z])/g, " $1").trim()}
+                    </span>
+                    <span className="text-xs font-bold text-slate-500 ml-2 shrink-0">{issue.count}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-indigo-400 transition-all duration-500"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-xs font-semibold text-slate-300">
-                  {issue.count} calls
-                </div>
-              </div>
-            ))}
+              );
+            })}
             {(!data.topIssues || data.topIssues.length === 0) && (
-              <div className="text-center py-8 text-slate-500 text-sm">No recorded issues.</div>
+              <div className="text-center py-8 text-slate-400 text-sm">No recorded issues.</div>
             )}
           </div>
         </div>
@@ -145,50 +203,44 @@ export default function InsightsPage() {
   );
 }
 
-function StatCard({ icon: Icon, title, value, subtitle, trend, trendPositive, color }: any) {
+function StatCard({ icon: Icon, title, value, subtitle, trend, trendPositive, color }: {
+  icon: any;
+  title: string;
+  value: any;
+  subtitle: string;
+  trend?: string;
+  trendPositive?: boolean;
+  color: "emerald" | "indigo" | "blue" | "amber";
+}) {
   const colorMap = {
-    emerald: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
-    indigo: "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
-    blue: "text-blue-400 bg-blue-500/10 border-blue-500/20",
-    amber: "text-amber-400 bg-amber-500/10 border-amber-500/20",
-  };
-  
-  const iconColorMap = {
-    emerald: "text-emerald-400",
-    indigo: "text-indigo-400",
-    blue: "text-blue-400",
-    amber: "text-amber-400",
+    emerald: "bg-emerald-50 text-emerald-600 border-emerald-100",
+    indigo: "bg-indigo-50 text-indigo-600 border-indigo-100",
+    blue: "bg-blue-50 text-blue-600 border-blue-100",
+    amber: "bg-amber-50 text-amber-600 border-amber-100",
   };
 
+  const TrendIcon = trendPositive === true ? TrendingUp : trendPositive === false ? TrendingDown : Minus;
+  const trendColor =
+    trendPositive === true ? "text-emerald-600 bg-emerald-50 border-emerald-100"
+    : trendPositive === false ? "text-red-600 bg-red-50 border-red-100"
+    : "text-slate-500 bg-slate-100 border-slate-200";
+
   return (
-    <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5 hover:bg-white/[0.03] transition-colors relative overflow-hidden group">
-      {/* Background glow on hover */}
-      <div className={cn("absolute -top-10 -right-10 w-32 h-32 rounded-full blur-3xl opacity-0 transition-opacity group-hover:opacity-20 pointer-events-none", colorMap[color as keyof typeof colorMap]?.split(" ")[1])} />
-      
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
-            {title}
-          </p>
-          <p className="text-3xl font-bold text-white/90 tracking-tight">{value}</p>
-        </div>
-        <div className={cn("p-2 rounded-lg border", colorMap[color as keyof typeof colorMap])}>
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-5 hover:shadow-md transition-shadow">
+      <div className="flex items-start justify-between mb-4">
+        <div className={cn("p-2 rounded-lg border", colorMap[color])}>
           <Icon className="h-5 w-5" />
         </div>
-      </div>
-      <div className="mt-4 flex items-center justify-between">
-        <p className="text-xs text-slate-500">{subtitle}</p>
         {trend && (
-          <span className={cn(
-            "text-[10px] font-bold px-2 py-0.5 rounded-full",
-            trendPositive === true ? "bg-emerald-500/10 text-emerald-400" :
-            trendPositive === false ? "bg-red-500/10 text-red-400" :
-            "bg-white/[0.06] text-slate-400"
-          )}>
+          <span className={cn("inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border", trendColor)}>
+            <TrendIcon className="h-3 w-3" />
             {trend}
           </span>
         )}
       </div>
+      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">{title}</p>
+      <p className="text-2xl font-bold text-slate-900 tracking-tight">{value}</p>
+      <p className="text-xs text-slate-400 mt-1">{subtitle}</p>
     </div>
   );
 }

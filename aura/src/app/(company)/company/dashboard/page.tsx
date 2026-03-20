@@ -68,29 +68,26 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#020617] text-white p-6 lg:p-10 space-y-10 selection:bg-indigo-500/30">
+    <div className="min-h-screen bg-slate-50 text-slate-900 p-6 lg:p-8 space-y-8">
       {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2 border-b border-white/5">
-        <div className="space-y-2">
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-1 bg-indigo-500 rounded-full shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
-            <h1 className="text-4xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-white/40">
-              COMMAND CENTER
-            </h1>
-          </div>
-          <p className="text-slate-400 font-medium tracking-wide flex items-center gap-2">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-4 border-b border-slate-200">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            Command Center
+          </h1>
+          <p className="text-sm text-slate-500 flex items-center gap-2">
             <Activity className="h-4 w-4 text-emerald-500 animate-pulse" />
-            LIVE TELEMETRY • AURA AI OPERATIONS
+            Live telemetry • Aura AI Operations
           </p>
         </div>
         
-        <div className="flex items-center gap-4 px-6 py-3 rounded-2xl bg-white/[0.03] border border-white/[0.06] backdrop-blur-xl">
+        <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white border border-slate-200 shadow-sm">
           <div className="text-right">
-             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">System Health</p>
-             <p className="text-sm font-mono font-bold text-emerald-400">OPERATIONAL</p>
+             <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-widest">System Health</p>
+             <p className="text-sm font-bold text-emerald-600">Operational</p>
           </div>
-          <div className="h-10 w-[1px] bg-white/10" />
-          <Zap className="h-5 w-5 text-amber-400" />
+          <div className="h-8 w-px bg-slate-200" />
+          <Zap className="h-5 w-5 text-amber-500" />
         </div>
       </div>
 
@@ -136,23 +133,23 @@ export default function DashboardPage() {
         <div className="grid gap-8 lg:grid-cols-5">
           <motion.div 
             variants={itemVariants}
-            className="lg:col-span-3 rounded-3xl border border-white/[0.06] bg-white/[0.02] backdrop-blur-3xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
+            className="lg:col-span-3 rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm"
           >
-            <div className="px-8 py-6 border-b border-white/[0.06] flex items-center justify-between bg-white/[0.01]">
-              <h3 className="font-bold text-xl tracking-tight flex items-center gap-3">
-                <Clock className="h-5 w-5 text-indigo-400" />
-                Recent Intercepts
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <h3 className="font-semibold text-slate-800 flex items-center gap-2.5">
+                <Clock className="h-4 w-4 text-indigo-600" />
+                Recent Calls
               </h3>
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Live Feed</span>
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Live Feed</span>
             </div>
             
             <div className="p-2">
               <Table>
-                <TableHeader className="bg-white/[0.01]">
-                  <TableRow className="border-white/[0.06] hover:bg-transparent">
-                    <TableHead className="text-slate-500 font-bold px-6">CALLER</TableHead>
-                    <TableHead className="text-slate-500 font-bold">TOPIC / ISSUE</TableHead>
-                    <TableHead className="text-slate-500 font-bold text-right pr-8">DURATION</TableHead>
+                <TableHeader>
+                  <TableRow className="border-slate-100 hover:bg-transparent">
+                    <TableHead className="text-slate-400 font-semibold px-6 text-xs">CALLER</TableHead>
+                    <TableHead className="text-slate-400 font-semibold text-xs">TOPIC</TableHead>
+                    <TableHead className="text-slate-400 font-semibold text-right pr-8 text-xs">DURATION</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -162,16 +159,16 @@ export default function DashboardPage() {
                         key={call.id || idx}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
-                        className="group border-white/[0.04] hover:bg-white/[0.02] transition-colors"
+                        className="group border-slate-100 hover:bg-slate-50 transition-colors"
                       >
-                        <TableCell className="font-mono text-sm font-semibold px-6 py-4 text-indigo-200">
+                        <TableCell className="font-mono text-sm font-semibold px-6 py-4 text-indigo-600">
                           {call.callerMasked}
                         </TableCell>
-                        <TableCell className="max-w-[200px] truncate text-slate-300 font-medium">
+                        <TableCell className="max-w-[200px] truncate text-slate-600 font-medium text-sm">
                           {call.issue}
                         </TableCell>
                         <TableCell className="text-right pr-8">
-                           <span className="px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-xs font-mono text-slate-400">
+                           <span className="px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-xs font-mono text-slate-500">
                              {call.duration}s
                            </span>
                         </TableCell>
@@ -186,44 +183,44 @@ export default function DashboardPage() {
           {/* Active Agents Card */}
           <motion.div 
             variants={itemVariants}
-            className="lg:col-span-2 rounded-3xl border border-white/[0.06] bg-white/[0.02] backdrop-blur-3xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
+            className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm"
           >
-            <div className="px-8 py-6 border-b border-white/[0.06] flex items-center justify-between bg-white/[0.01]">
-              <h3 className="font-bold text-xl tracking-tight flex items-center gap-3">
-                <ShieldCheck className="h-5 w-5 text-emerald-400" />
-                Squad Performance
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <h3 className="font-semibold text-slate-800 flex items-center gap-2.5">
+                <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                Agent Performance
               </h3>
             </div>
             
-            <div className="p-6 space-y-4">
+            <div className="p-5 space-y-3">
               {agents.map((agent: any) => (
                 <div 
                   key={agent.email} 
-                  className="flex items-center justify-between p-4 rounded-2xl bg-white/[0.02] border border-white/[0.04] hover:border-indigo-500/30 hover:bg-indigo-500/[0.02] transition-all group"
+                  className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/30 transition-all group"
                 >
-                  <div className="flex items-center gap-4">
-                    <div className="h-10 w-10 rounded-full bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center border border-white/10 group-hover:scale-110 transition-transform">
-                      <span className="text-xs font-black">{agent.name?.[0] || 'A'}</span>
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center group-hover:scale-105 transition-transform">
+                      <span className="text-xs font-bold text-indigo-700">{agent.name?.[0] || 'A'}</span>
                     </div>
                     <div>
-                      <p className="text-sm font-bold text-white tracking-tight">{agent.name || "Agent"}</p>
-                      <p className="text-[10px] text-slate-500 font-mono uppercase tracking-widest">{agent.role}</p>
+                      <p className="text-sm font-semibold text-slate-800">{agent.name || "Agent"}</p>
+                      <p className="text-[10px] text-slate-400 uppercase tracking-wider">{agent.role}</p>
                     </div>
                   </div>
                   <div className="flex flex-col items-end">
-                    <div className="flex items-center gap-2">
-                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
-                       <span className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.2em]">Live</span>
+                    <div className="flex items-center gap-1.5">
+                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                       <span className="text-[10px] font-semibold text-emerald-600">Live</span>
                     </div>
-                    <p className="text-[10px] text-slate-500 mt-1 font-bold italic">{agent.callsHandled} cycles</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{agent.callsHandled} calls</p>
                   </div>
                 </div>
               ))}
               
               {agents.length === 0 && !loading && (
-                <div className="h-40 flex flex-col items-center justify-center text-slate-500 space-y-2">
+                <div className="h-40 flex flex-col items-center justify-center text-slate-400 space-y-2">
                   <Zap className="h-8 w-8 opacity-20" />
-                  <p className="text-xs font-bold uppercase tracking-widest">No Active Personnel</p>
+                  <p className="text-xs font-medium">No active agents</p>
                 </div>
               )}
             </div>

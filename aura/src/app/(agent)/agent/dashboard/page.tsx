@@ -34,13 +34,6 @@ const LiveTranscript = dynamic(
     })),
   { ssr: false }
 );
-const SentimentGraph = dynamic(
-  () =>
-    import("@/components/agent/SentimentGraph").then((mod) => ({
-      default: mod.SentimentGraph,
-    })),
-  { ssr: false }
-);
 const CopilotPanel = dynamic(
   () =>
     import("@/components/agent/CopilotPanel").then((mod) => ({
@@ -62,14 +55,6 @@ const KnowledgeRetrievalPanel = dynamic(
     })),
   { ssr: false }
 );
-const ResponseSuggestionsPanel = dynamic(
-  () =>
-    import("@/components/agent/ResponseSuggestionsPanel").then((mod) => ({
-      default: mod.ResponseSuggestionsPanel,
-    })),
-  { ssr: false }
-);
-
 const MOCK_ANALYSIS = {
   callId: "sim-demo-001",
   intent: "billing_issue",
@@ -282,7 +267,7 @@ export default function AgentDashboardPage() {
   return (
     <div className="flex flex-col h-full">
       {/* ─── Top Status Bar ─── */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06] bg-white/[0.01]">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-white shadow-sm">
         {/* Left: Caller info */}
         <div className="flex items-center gap-3">
           {/* Status dot */}
@@ -291,15 +276,15 @@ export default function AgentDashboardPage() {
               className={cn(
                 "h-2.5 w-2.5 rounded-full",
                 callId
-                  ? "bg-emerald-400 shadow-lg shadow-emerald-400/30 animate-pulse"
-                  : "bg-slate-600"
+                  ? "bg-emerald-500 shadow-md shadow-emerald-400/40 animate-pulse"
+                  : "bg-slate-300"
               )}
             />
             <div>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider font-medium">
                 {callId ? "Live Call" : "Standby"}
               </p>
-              <p className="text-sm font-semibold text-white/90">
+              <p className="text-sm font-semibold text-slate-800">
                 {callId
                   ? `Call ${callId.slice(-8)}`
                   : "Waiting for incoming call…"}
@@ -315,10 +300,9 @@ export default function AgentDashboardPage() {
         {!callId && (
            <div className="absolute left-1/2 -translate-x-1/2 animate-in fade-in zoom-in duration-300">
              <button
-               // Wait for device to be ready to prevent calling without token loaded
                disabled={!dialerReady}
                onClick={() => setIsOutboundOpen(true)}
-               className="group flex items-center gap-2 px-6 py-2 rounded-full bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-400 hover:to-violet-500 text-white font-semibold shadow-lg shadow-indigo-500/20 active:scale-95 transition-all text-sm disabled:opacity-50 disabled:pointer-events-none border border-indigo-400/20"
+               className="group flex items-center gap-2 px-6 py-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-md shadow-indigo-500/20 active:scale-95 transition-all text-sm disabled:opacity-50 disabled:pointer-events-none"
              >
                <PhoneCall className="h-4 w-4 fill-white flex-shrink-0 group-hover:animate-bounce" />
                {dialerReady ? " Make call" : "Voice Initializing..."}
@@ -327,14 +311,14 @@ export default function AgentDashboardPage() {
         )}
 
         {/* Right: Stats + Controls */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {/* Timer */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06]">
-            <Timer className="h-3 w-3 text-slate-500" />
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200">
+            <Timer className="h-3 w-3 text-slate-400" />
             <span
               className={cn(
                 "font-mono text-sm font-bold tabular-nums",
-                callId ? "text-white" : "text-slate-600"
+                callId ? "text-slate-800" : "text-slate-400"
               )}
             >
               {mm}:{ss}
@@ -344,42 +328,46 @@ export default function AgentDashboardPage() {
           {/* Mode */}
           <div
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border",
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-semibold",
               activeMode === "alert"
-                ? "bg-red-500/10 border-red-500/20 text-red-400"
-                : "bg-white/[0.04] border-white/[0.06] text-slate-400"
+                ? "bg-red-50 border-red-200 text-red-600"
+                : "bg-slate-100 border-slate-200 text-slate-500"
             )}
           >
             <Zap className="h-3 w-3" />
-            <span className="text-[11px] font-semibold">{modeLabel}</span>
+            <span>{modeLabel}</span>
           </div>
 
           {/* Sentiment */}
           <div
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.06]",
-              sentimentBg
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-semibold",
+              !sentimentScore
+                ? "bg-slate-100 border-slate-200 text-slate-500"
+                : sentimentScore >= 60
+                ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                : sentimentScore >= 40
+                ? "bg-amber-50 border-amber-200 text-amber-700"
+                : "bg-red-50 border-red-200 text-red-700"
             )}
           >
-            <Activity className="h-3 w-3 text-slate-500" />
-            <span className={cn("text-[11px] font-bold capitalize", sentimentColor)}>
+            <Activity className="h-3 w-3" />
+            <span className="capitalize">
               {customerDisposition || sentimentLabel || "—"}
             </span>
             {sentimentScore !== null && (
-              <span className={cn("text-[10px] font-mono", sentimentColor)}>
-                {sentimentScore}
-              </span>
+              <span className="font-mono">{sentimentScore}</span>
             )}
           </div>
 
           {/* Intent */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-500/20 bg-indigo-500/10">
-            <Zap className="h-3 w-3 text-indigo-300" />
-            <span className="text-[11px] font-semibold text-indigo-100 capitalize">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50">
+            <Zap className="h-3 w-3 text-indigo-600" />
+            <span className="text-[11px] font-semibold text-indigo-700 capitalize">
               {intent ? intent.replace(/_/g, " ") : "intent pending"}
             </span>
             {typeof intentConfidence === "number" && (
-              <span className="text-[10px] font-mono text-indigo-300/80">
+              <span className="text-[10px] font-mono text-indigo-500">
                 {Math.round(intentConfidence * 100)}%
               </span>
             )}
@@ -391,10 +379,10 @@ export default function AgentDashboardPage() {
               <button
                 onClick={() => setIsMuted(!isMuted)}
                 className={cn(
-                  "h-8 w-8 rounded-lg flex items-center justify-center transition-all duration-200",
+                  "h-8 w-8 rounded-lg flex items-center justify-center transition-all duration-200 border",
                   isMuted
-                    ? "bg-red-500/20 text-red-400 border border-red-500/20"
-                    : "bg-white/[0.04] text-slate-400 border border-white/[0.06] hover:bg-white/[0.06]"
+                    ? "bg-red-50 text-red-600 border-red-200"
+                    : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
                 )}
                 title={isMuted ? "Unmute" : "Mute"}
               >
@@ -408,10 +396,10 @@ export default function AgentDashboardPage() {
               <button
                 onClick={handleHoldToggle}
                 className={cn(
-                  "h-8 w-8 rounded-lg flex items-center justify-center transition-all duration-200",
+                  "h-8 w-8 rounded-lg flex items-center justify-center transition-all duration-200 border",
                   isOnHold
-                    ? "bg-amber-500/20 text-amber-400 border border-amber-500/20"
-                    : "bg-white/[0.04] text-slate-400 border border-white/[0.06] hover:bg-white/[0.06]"
+                    ? "bg-amber-50 text-amber-600 border-amber-200"
+                    : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
                 )}
                 title={isOnHold ? "Resume" : "Hold"}
               >
@@ -424,7 +412,7 @@ export default function AgentDashboardPage() {
 
               <button
                 onClick={handleEndCall}
-                className="h-8 px-4 rounded-lg bg-red-500/20 text-red-400 border border-red-500/25 text-[11px] font-semibold flex items-center gap-1.5 hover:bg-red-500/30 active:scale-[0.97] transition-all duration-200"
+                className="h-8 px-4 rounded-lg bg-red-50 text-red-600 border border-red-200 text-[11px] font-semibold flex items-center gap-1.5 hover:bg-red-100 active:scale-[0.97] transition-all duration-200"
               >
                 <PhoneOff className="h-3.5 w-3.5" />
                 End
@@ -441,17 +429,17 @@ export default function AgentDashboardPage() {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden bg-indigo-500/5 border-b border-indigo-500/10"
+            className="overflow-hidden bg-indigo-50 border-b border-indigo-100"
           >
             <div className="px-5 py-2.5 flex items-center gap-3">
-               <div className="h-5 w-5 rounded-md bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
-                  <Sparkles className="h-3 w-3 text-indigo-400" />
+               <div className="h-5 w-5 rounded-md bg-indigo-100 flex items-center justify-center border border-indigo-200">
+                  <Sparkles className="h-3 w-3 text-indigo-600" />
                </div>
-               <p className="text-xs font-medium text-indigo-100 italic">
+               <p className="text-xs font-medium text-indigo-700 italic">
                   &quot;{liveSummary}&quot;
                </p>
-               <div className="ml-auto px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20">
-                  <span className="text-[9px] font-bold text-indigo-300 uppercase tracking-tighter">Live AI Status</span>
+               <div className="ml-auto px-2 py-0.5 rounded-full bg-indigo-100 border border-indigo-200">
+                  <span className="text-[9px] font-bold text-indigo-600 uppercase tracking-tighter">Live AI Status</span>
                </div>
             </div>
           </motion.div>
@@ -459,35 +447,28 @@ export default function AgentDashboardPage() {
       </AnimatePresence>
 
       {/* ─── Main Content Grid ─── */}
-      <div className="flex-1 flex min-h-0 p-4 gap-4">
-        {/* Left Panel: Transcript + Suggestions + Sentiment */}
-        <div className="flex-[3] flex flex-col gap-4 min-h-0">
-          <div className="flex-1 min-h-0">
-            <LiveTranscript />
-          </div>
-          <ResponseSuggestionsPanel />
-          <SentimentGraph />
+      <div className="flex-1 flex min-h-0 p-4 gap-4 overflow-hidden">
+        {/* LEFT 60%: Transcript — Primary Card */}
+        <div className="flex-[3] min-h-0">
+          <LiveTranscript />
         </div>
 
-        {/* Right Panel: Intent + Knowledge + Copilot */}
-        <div className="flex-[2] flex flex-col gap-3 min-h-0 overflow-y-auto">
-          {/* Simulate button — only when no active call */}
+        {/* RIGHT 40%: AI Suggestions (Primary Card) + flat sections */}
+        <div className="flex-[2] flex flex-col min-h-0 overflow-y-auto scrollbar-thin">
           {!callId && (
             <button
               type="button"
               onClick={simulateLiveData}
               disabled={isSimulating}
-              className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl border border-dashed border-white/[0.12] bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/[0.20] text-slate-400 hover:text-slate-300 text-[12px] font-semibold transition-all active:scale-[0.98] disabled:opacity-60"
+              className="flex items-center justify-center gap-2 w-full px-4 py-2 mb-3 rounded-xl border border-dashed border-slate-300 bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-700 text-[12px] font-medium transition-colors disabled:opacity-60"
             >
               <FlaskConical className="h-3.5 w-3.5" />
               {isSimulating ? "Loading simulation…" : "Simulate Live Call Data"}
             </button>
           )}
+          <CopilotPanel />
           <IntentPanel />
           <KnowledgeRetrievalPanel />
-          <div className="min-h-[260px]">
-            <CopilotPanel />
-          </div>
         </div>
       </div>
 
@@ -496,28 +477,28 @@ export default function AgentDashboardPage() {
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="px-5 py-3 border-t border-white/[0.06] bg-white/[0.01]"
+          className="px-5 py-3 border-t border-slate-200 bg-white"
         >
           <div className="flex items-center justify-center gap-8 text-center">
             <div>
-              <p className="text-lg font-bold text-white/90">
+              <p className="text-lg font-bold text-slate-800">
                 {transcript.length}
               </p>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider">
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider">
                 Messages Today
               </p>
             </div>
-            <div className="h-8 w-px bg-white/[0.06]" />
+            <div className="h-8 w-px bg-slate-200" />
             <div>
-              <p className="text-lg font-bold text-white/90">0</p>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider">
+              <p className="text-lg font-bold text-slate-800">0</p>
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider">
                 Calls Queued
               </p>
             </div>
-            <div className="h-8 w-px bg-white/[0.06]" />
+            <div className="h-8 w-px bg-slate-200" />
             <div>
-              <p className="text-lg font-bold text-emerald-400">Ready</p>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider">
+              <p className="text-lg font-bold text-emerald-600">Ready</p>
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider">
                 Status
               </p>
             </div>

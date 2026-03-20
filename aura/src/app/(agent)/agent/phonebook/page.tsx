@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Phone, History, Contact, UserCircle2 } from "lucide-react";
+import { Search, Phone, History, BookUser, Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -14,6 +14,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { motion } from "framer-motion";
 
 interface ContactData {
   name: string;
@@ -24,11 +25,54 @@ interface ContactData {
   summaries: string[];
 }
 
+const CONTACT_AVATAR_COLORS = ["bg-indigo-600", "bg-violet-500", "bg-blue-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500"];
+
+function getContactAvatarColor(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  return CONTACT_AVATAR_COLORS[Math.abs(hash) % CONTACT_AVATAR_COLORS.length];
+}
+
+function getContactInitials(name: string, phone: string): string {
+  if (name && name !== "Unknown" && name.trim().length > 0) {
+    const parts = name.trim().split(" ").filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return name.trim().slice(0, 2).toUpperCase();
+  }
+  return phone.replace(/\D/g, "").slice(-2);
+}
+
+function toRelativeDate(dateStr: string): string {
+  if (!dateStr) return "Never";
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function FrequencyBadge({ count }: { count: number }) {
+  if (count >= 3) return <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-indigo-50 text-indigo-600 border border-indigo-100 uppercase tracking-wide">Frequent</span>;
+  if (count === 0) return <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-500 border border-slate-200 uppercase tracking-wide">New</span>;
+  return null;
+}
+
+function IssueSentimentDot({ issue }: { issue: string }) {
+  const lower = (issue || "").toLowerCase();
+  const isHighRisk = /refund|angry|billing|escalat|urgent|cancel|fraud|complaint/.test(lower);
+  const isMedium = /issue|problem|error|fail|broken|not work/.test(lower);
+  if (isHighRisk) return <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" />;
+  if (isMedium) return <span className="h-2 w-2 rounded-full bg-blue-400 shrink-0" />;
+  return <span className="h-2 w-2 rounded-full bg-emerald-400 shrink-0" />;
+}
+
 export default function PhonebookPage() {
   const [contacts, setContacts] = useState<ContactData[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  
   const [selectedContact, setSelectedContact] = useState<ContactData | null>(null);
   const [showAddContact, setShowAddContact] = useState(false);
   const [newContactName, setNewContactName] = useState("");
@@ -50,7 +94,9 @@ export default function PhonebookPage() {
   const filteredContacts = useMemo(() => {
     const q = search.toLowerCase();
     return contacts.filter((c) =>
-      c.phone.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)
+      c.phone.toLowerCase().includes(q) ||
+      c.name.toLowerCase().includes(q) ||
+      (c.lastIssue || "").toLowerCase().includes(q)
     );
   }, [search, contacts]);
 
@@ -112,139 +158,158 @@ export default function PhonebookPage() {
   };
 
   const handleCall = (phone: string) => {
-    router.push(`/agent/dashboard?dial=${phone.replace(/\D/g, '')}`);
+    router.push(`/agent/dashboard?dial=${phone.replace(/\D/g, "")}`);
   };
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto space-y-6">
-      <div className="flex items-center justify-between mb-8">
+    <div className="p-6 max-w-[1400px] mx-auto space-y-5">
+      {/* Header */}
+      <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white/90 flex items-center gap-2">
-            <Contact className="h-6 w-6 text-indigo-400" />
+          <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+            <BookUser className="h-5 w-5 text-indigo-500" />
             Phonebook CRM
           </h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Browse caller profiles, history, and initiate calls instantly.
-          </p>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 flex flex-wrap gap-4 items-center justify-between">
-        <div className="relative flex-1 min-w-[250px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-          <Input
-            placeholder="Search by name or number..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 bg-white/[0.04] border-white/[0.08] text-white focus:border-indigo-500/50"
-          />
+          <p className="text-sm text-slate-500 mt-0.5">Browse caller profiles, history, and initiate calls instantly.</p>
         </div>
         <Button
           onClick={() => setShowAddContact(true)}
-          className="bg-indigo-500 hover:bg-indigo-600 text-white"
+          className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-200 gap-2"
         >
-          Add New Number
+          <Plus className="h-4 w-4" /> Add Contact
         </Button>
       </div>
 
-      <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+      {/* Search bar */}
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-3 flex items-center gap-3">
+        <Search className="h-4 w-4 text-slate-400 shrink-0 ml-1" />
+        <Input
+          placeholder="Search by name, number, or issue..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="border-0 shadow-none bg-transparent text-slate-900 placeholder:text-slate-400 focus-visible:ring-0 px-0 h-8"
+        />
+        {search && (
+          <button onClick={() => setSearch("")} className="text-slate-400 hover:text-slate-600">
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {/* Table */}
+      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
         <Table>
-          <TableHeader className="bg-white/[0.02] hover:bg-white/[0.02]">
-            <TableRow className="border-b border-white/[0.08] hover:bg-transparent">
-              <TableHead className="text-slate-400 font-semibold h-11 text-xs">Customer Name</TableHead>
-              <TableHead className="text-slate-400 font-semibold h-11 text-xs">Phone Number</TableHead>
-              <TableHead className="text-slate-400 font-semibold h-11 text-xs text-center">Interactions</TableHead>
-              <TableHead className="text-slate-400 font-semibold h-11 text-xs">Last Call Date</TableHead>
-              <TableHead className="text-slate-400 font-semibold h-11 text-xs">Last Discovered Issue</TableHead>
-              <TableHead className="text-slate-400 font-semibold h-11 text-xs text-right">Action</TableHead>
+          <TableHeader>
+            <TableRow className="border-b border-slate-100 hover:bg-transparent bg-slate-50">
+              <TableHead className="text-slate-500 font-semibold h-11 text-xs uppercase tracking-wider">Contact</TableHead>
+              <TableHead className="text-slate-500 font-semibold h-11 text-xs uppercase tracking-wider">Phone Number</TableHead>
+              <TableHead className="text-slate-500 font-semibold h-11 text-xs uppercase tracking-wider text-center">Interactions</TableHead>
+              <TableHead className="text-slate-500 font-semibold h-11 text-xs uppercase tracking-wider">Last Call</TableHead>
+              <TableHead className="text-slate-500 font-semibold h-11 text-xs uppercase tracking-wider">Last Issue</TableHead>
+              <TableHead className="text-slate-500 font-semibold h-11 text-xs uppercase tracking-wider text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               Array.from({ length: 5 }).map((_, i) => (
-                <TableRow key={i} className="border-b-white/[0.04] hover:bg-white/[0.02]">
-                  <TableCell><Skeleton className="h-4 w-32 bg-white/[0.06]" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-24 bg-white/[0.06]" /></TableCell>
-                  <TableCell className="text-center"><Skeleton className="h-4 w-8 mx-auto bg-white/[0.06]" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-24 bg-white/[0.06]" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-32 bg-white/[0.06]" /></TableCell>
-                  <TableCell className="text-right"><Skeleton className="h-8 w-16 ml-auto rounded-md bg-white/[0.06]" /></TableCell>
+                <TableRow key={i} className="border-b border-slate-100">
+                  <TableCell><div className="flex items-center gap-3"><Skeleton className="h-9 w-9 rounded-xl bg-slate-200" /><Skeleton className="h-4 w-32 bg-slate-200" /></div></TableCell>
+                  <TableCell><Skeleton className="h-4 w-24 bg-slate-200" /></TableCell>
+                  <TableCell className="text-center"><Skeleton className="h-4 w-8 mx-auto bg-slate-200" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-20 bg-slate-200" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-32 bg-slate-200" /></TableCell>
+                  <TableCell className="text-right"><Skeleton className="h-8 w-16 ml-auto rounded-lg bg-slate-200" /></TableCell>
                 </TableRow>
               ))
             ) : filteredContacts.length === 0 ? (
               <TableRow className="border-b-transparent hover:bg-transparent">
-                <TableCell colSpan={6} className="text-center py-16 text-slate-500">
-                  No contacts found. Have some inbound/outbound calls first to populate this CRM.
+                <TableCell colSpan={6} className="text-center py-20">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="h-12 w-12 rounded-2xl bg-slate-100 flex items-center justify-center">
+                      <BookUser className="h-6 w-6 text-slate-300" />
+                    </div>
+                    <p className="text-slate-500 font-medium text-sm">No contacts found</p>
+                    <p className="text-slate-400 text-xs">Have some inbound/outbound calls first to populate this CRM.</p>
+                  </div>
                 </TableCell>
               </TableRow>
             ) : (
-              filteredContacts.map((c) => (
-                <TableRow 
-                  key={c.phone} 
-                  className="border-b-white/[0.04] hover:bg-white/[0.03] transition-colors cursor-pointer group"
-                  onClick={() => {
-                    setSelectedContact(c);
-                    setEditName(c.name);
-                  }}
+              filteredContacts.map((c, idx) => (
+                <motion.tr
+                  key={c.phone}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.03 }}
+                  className="border-b border-slate-100 hover:bg-slate-50 transition-colors cursor-pointer group"
+                  onClick={() => { setSelectedContact(c); setEditName(c.name); }}
                 >
                   <TableCell>
-                    <div className="flex items-center gap-2">
-                       <UserCircle2 className="h-4 w-4 text-indigo-400" />
-                       <span className="font-medium text-white/90">{c.name}</span>
+                    <div className="flex items-center gap-3">
+                      <div className={cn("h-9 w-9 rounded-xl flex items-center justify-center text-xs font-bold text-white shrink-0", getContactAvatarColor(c.phone))}>
+                        {getContactInitials(c.name, c.phone)}
+                      </div>
+                      <div className="flex items-center gap-1 flex-wrap min-w-0">
+                        <span className="font-semibold text-slate-900 text-sm">{c.name}</span>
+                        <FrequencyBadge count={c.callCount} />
+                      </div>
                     </div>
                   </TableCell>
-                  <TableCell className="text-slate-300 font-mono text-xs">{c.phone}</TableCell>
+                  <TableCell className="text-slate-600 font-mono text-xs">{c.phone}</TableCell>
                   <TableCell className="text-center">
-                    <span className="inline-flex items-center justify-center px-2 py-1 rounded-full bg-white/[0.06] text-xs font-bold text-white/80">
-                      {c.callCount}
+                    <span className="inline-flex items-center justify-center h-6 px-2 rounded-full bg-slate-100 text-slate-700 text-xs font-bold">{c.callCount}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-slate-500 text-xs" title={c.lastCallAt ? new Date(c.lastCallAt).toLocaleString() : ""}>
+                      {toRelativeDate(c.lastCallAt)}
                     </span>
                   </TableCell>
-                  <TableCell className="text-slate-400 text-xs text-muted-foreground whitespace-nowrap">
-                    {c.lastCallAt ? new Date(c.lastCallAt).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "N/A"}
-                  </TableCell>
-                  <TableCell className="text-slate-400 text-xs break-words max-w-[200px]">
-                    {c.lastIssue || "Unknown"}
+                  <TableCell>
+                    <div className="flex items-center gap-1.5 max-w-[200px]">
+                      <IssueSentimentDot issue={c.lastIssue} />
+                      <span className="text-slate-500 text-xs truncate">{c.lastIssue || "None recorded"}</span>
+                    </div>
                   </TableCell>
                   <TableCell className="text-right">
                     <Button
                       size="sm"
                       onClick={(e) => { e.stopPropagation(); handleCall(c.phone); }}
-                      className="bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500 hover:text-white border border-indigo-500/30"
+                      className="bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white border border-indigo-100 transition-all"
                     >
                       <Phone className="h-3.5 w-3.5 mr-1" /> Call
                     </Button>
                   </TableCell>
-                </TableRow>
+                </motion.tr>
               ))
             )}
           </TableBody>
         </Table>
       </div>
 
+      {/* Add Contact Sheet */}
       <Sheet open={showAddContact} onOpenChange={(v) => !v && setShowAddContact(false)}>
-        <SheetContent className="bg-[#0a0e1a] border-white/[0.08] sm:max-w-md p-6 overflow-y-auto">
+        <SheetContent className="bg-white border-slate-200 sm:max-w-md p-6 overflow-y-auto">
           <SheetHeader className="mb-6">
-            <SheetTitle className="text-xl text-white/90">Add New Contact</SheetTitle>
-            <p className="text-sm text-slate-400">Enter phone and customer name to add to phonebook.</p>
+            <SheetTitle className="text-xl text-slate-900">Add New Contact</SheetTitle>
+            <p className="text-sm text-slate-500">Enter phone and customer name to add to phonebook.</p>
           </SheetHeader>
           <div className="space-y-4">
             <Input
               placeholder="Customer Name"
               value={newContactName}
               onChange={(e) => setNewContactName(e.target.value)}
-              className="bg-white/[0.04] border-white/[0.08] text-white"
+              className="bg-slate-50 border-slate-200 text-slate-900"
             />
             <Input
               placeholder="Phone Number"
               value={newContactPhone}
               onChange={(e) => setNewContactPhone(e.target.value)}
-              className="bg-white/[0.04] border-white/[0.08] text-white"
+              className="bg-slate-50 border-slate-200 text-slate-900"
             />
-            <div className="flex gap-2">
-              <Button onClick={handleAddContact} className="bg-indigo-500 hover:bg-indigo-600 text-white flex-1">
+            <div className="flex gap-2 pt-2">
+              <Button onClick={handleAddContact} className="bg-indigo-600 hover:bg-indigo-700 text-white flex-1">
                 Save Contact
               </Button>
-              <Button onClick={() => setShowAddContact(false)} className="bg-white/[0.08] text-white/80 flex-1">
+              <Button onClick={() => setShowAddContact(false)} variant="outline" className="border-slate-200 text-slate-700 flex-1">
                 Cancel
               </Button>
             </div>
@@ -252,55 +317,55 @@ export default function PhonebookPage() {
         </SheetContent>
       </Sheet>
 
+      {/* Contact Detail Sheet */}
       <Sheet open={!!selectedContact} onOpenChange={(v) => !v && setSelectedContact(null)}>
         {selectedContact && (
-          <SheetContent className="bg-[#0a0e1a] border-white/[0.08] sm:max-w-md p-6 overflow-y-auto">
-            <SheetHeader className="mb-6">
+          <SheetContent className="bg-white border-slate-200 sm:max-w-md p-6 overflow-y-auto">
+            <SheetHeader className="mb-5">
               <div className="flex justify-center mb-4">
-                <div className="h-20 w-20 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
-                  <UserCircle2 className="h-10 w-10 text-indigo-400" />
+                <div className={cn("h-20 w-20 rounded-2xl flex items-center justify-center text-2xl font-bold text-white shadow-md", getContactAvatarColor(selectedContact.phone))}>
+                  {getContactInitials(selectedContact.name, selectedContact.phone)}
                 </div>
               </div>
-              <SheetTitle className="text-center text-white/90 text-xl">{selectedContact.name}</SheetTitle>
+              <SheetTitle className="text-center text-slate-900 text-xl">{selectedContact.name}</SheetTitle>
               <div className="text-center font-mono text-slate-400 text-sm">{selectedContact.phone}</div>
               <div className="mt-4 space-y-2">
                 <Input
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  className="bg-white/[0.04] border-white/[0.08] text-white"
+                  className="bg-slate-50 border-slate-200 text-slate-900"
                 />
                 <Button
                   size="sm"
                   onClick={() => handleUpdateCustomerName(selectedContact.phone, editName)}
-                  className="w-full bg-indigo-500 hover:bg-indigo-600 text-white"
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
                 >
-                  Update Customer Name
+                  Update Name
                 </Button>
               </div>
             </SheetHeader>
 
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-white/[0.02] border border-white/[0.08] rounded-lg p-3 text-center">
-                  <div className="text-2xl font-bold text-white/90">{selectedContact.callCount}</div>
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1">Total Calls</div>
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+                  <div className="text-2xl font-bold text-slate-900">{selectedContact.callCount}</div>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">Total Calls</div>
                 </div>
-                <div className="bg-white/[0.02] border border-white/[0.08] rounded-lg p-3 text-center">
-                  <div className="text-sm font-semibold text-white/80 line-clamp-1 break-all">
-                    {selectedContact.lastIssue}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+                  <div className="flex items-center justify-center gap-1 mb-1">
+                    <IssueSentimentDot issue={selectedContact.lastIssue} />
                   </div>
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1">Latest Issue</div>
+                  <div className="text-xs font-medium text-slate-700 line-clamp-2 leading-tight">{selectedContact.lastIssue || "N/A"}</div>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">Latest Issue</div>
                 </div>
               </div>
 
-              <div>
-                <Button 
-                  onClick={() => handleCall(selectedContact.phone)}
-                  className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-semibold"
-                >
-                  <Phone className="h-4 w-4 mr-2" /> Start Call Now
-                </Button>
-              </div>
+              <Button
+                onClick={() => handleCall(selectedContact.phone)}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
+              >
+                <Phone className="h-4 w-4 mr-2" /> Start Call Now
+              </Button>
 
               <div>
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
@@ -309,15 +374,16 @@ export default function PhonebookPage() {
                 {selectedContact.summaries && selectedContact.summaries.length > 0 ? (
                   <div className="space-y-3">
                     {selectedContact.summaries.map((summary, idx) => (
-                      <div key={idx} className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3 text-sm text-white/80 leading-relaxed relative overflow-hidden">
-                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500/50" />
+                      <div key={idx} className="relative bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm text-slate-700 leading-relaxed overflow-hidden">
+                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-400 rounded-l-xl" />
+                        <span className="absolute top-3 right-3 text-[10px] font-bold text-slate-300">#{idx + 1}</span>
                         {summary}
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="text-sm text-slate-500 p-4 border border-dashed border-white/[0.08] rounded-lg text-center">
-                    No generated AI summaries exist for this user yet.
+                  <div className="text-sm text-slate-400 p-6 border border-dashed border-slate-200 rounded-xl text-center bg-slate-50">
+                    No AI summaries yet for this contact.
                   </div>
                 )}
               </div>

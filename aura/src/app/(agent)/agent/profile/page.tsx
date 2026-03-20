@@ -4,17 +4,39 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Phone, Clock, Star, Edit, Save, X, LogOut } from "lucide-react";
+import { Phone, Clock, Star, Edit2, Save, X, LogOut, User } from "lucide-react";
 import { getAuth, signOut } from "firebase/auth";
+import { cn } from "@/lib/utils";
 
 interface Stats {
   callsToday: number;
   avgAHT: number;
   avgCSAT: number;
+}
+
+function toDisplayName(user: { displayName?: string | null; email?: string | null } | null): string {
+  const explicit = user?.displayName?.trim();
+  if (explicit) return explicit;
+  const local = user?.email?.split("@")[0] || "";
+  const cleaned = local.replace(/[._-]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!cleaned) return "Agent";
+  return cleaned.split(" ").map((p) => p ? p[0].toUpperCase() + p.slice(1) : p).join(" ");
+}
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(" ").filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return name.trim().slice(0, 2).toUpperCase();
+}
+
+const AVATAR_COLORS = ["bg-indigo-600", "bg-violet-500", "bg-blue-500", "bg-emerald-500"];
+function getAvatarColor(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
 export default function ProfilePage() {
@@ -28,10 +50,9 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!user) return;
-
-    // Use Firebase Auth data directly for profile info
-    setDisplayName(user.displayName || user.email?.split("@")[0] || "Agent");
-    setEditName(user.displayName || user.email?.split("@")[0] || "Agent");
+    const name = toDisplayName(user);
+    setDisplayName(name);
+    setEditName(name);
 
     const fetchStats = async () => {
       try {
@@ -46,7 +67,6 @@ export default function ProfilePage() {
         setLoading(false);
       }
     };
-
     fetchStats();
   }, [user]);
 
@@ -57,25 +77,16 @@ export default function ProfilePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: editName }),
       });
-
       if (res.ok) {
         setDisplayName(editName);
         setEditing(false);
-        toast({ title: "✓ Name updated" });
+        toast({ title: "Name updated" });
       } else {
         const data = await res.json();
-        toast({
-          title: "Error",
-          description: data.error || "Failed to update name.",
-          variant: "destructive",
-        });
+        toast({ title: "Error", description: data.error || "Failed to update name.", variant: "destructive" });
       }
     } catch {
-      toast({
-        title: "Error",
-        description: "Could not update name.",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Could not update name.", variant: "destructive" });
     }
   };
 
@@ -88,146 +99,119 @@ export default function ProfilePage() {
     }
   };
 
-  return (
-    <div className="p-6 space-y-6 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold text-white/90">Profile</h1>
+  const avatarColor = getAvatarColor(displayName || "Agent");
+  const initials = displayName ? getInitials(displayName) : "AG";
 
-      {/* Profile Info */}
-      <Card className="bg-white/[0.03] border-white/[0.08]">
-        <CardHeader>
-          <CardTitle className="text-white/80">Personal Information</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label className="text-slate-400">Name</Label>
-            {editing ? (
-              <div className="flex space-x-2 mt-1">
-                <Input
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  className="bg-white/[0.04] border-white/[0.08] text-white"
-                  onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
-                  autoFocus
-                />
-                <Button size="sm" onClick={handleSaveName}>
-                  <Save className="h-4 w-4" />
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setEditing(false);
-                    setEditName(displayName);
-                  }}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between mt-1">
-                <span className="text-white/90">
-                  {loading ? (
-                    <Skeleton className="h-6 w-32" />
-                  ) : (
-                    displayName
-                  )}
-                </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setEditing(true)}
-                  className="text-slate-400 hover:text-white"
-                >
-                  <Edit className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
-          </div>
-          <div>
-            <Label className="text-slate-400">Email</Label>
-            <p className="text-white/90 mt-1">
+  return (
+    <div className="p-6 space-y-5 max-w-2xl mx-auto">
+      <div>
+        <h1 className="text-xl font-bold text-slate-900">Profile</h1>
+        <p className="text-sm text-slate-500 mt-0.5">Manage your account and view performance stats.</p>
+      </div>
+
+      {/* Profile Card */}
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        {/* Avatar banner */}
+        <div className="bg-gradient-to-r from-indigo-50 to-slate-50 px-6 pt-6 pb-4 border-b border-slate-100">
+          <div className="flex items-center gap-4">
+            <div className={cn("h-14 w-14 rounded-2xl flex items-center justify-center text-xl font-bold text-white shadow-md shrink-0", avatarColor)}>
+              {loading ? <User className="h-6 w-6 text-white/70" /> : initials}
+            </div>
+            <div>
               {loading ? (
-                <Skeleton className="h-6 w-48" />
+                <Skeleton className="h-6 w-40 bg-slate-200 mb-1" />
               ) : (
-                user?.email || "—"
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-lg font-bold text-slate-900">{displayName}</span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-600 text-[10px] font-bold uppercase tracking-wide">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    Available
+                  </span>
+                </div>
               )}
-            </p>
+              <p className="text-sm text-slate-400 mt-0.5">{user?.email || "—"}</p>
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+
+        {/* Personal Info */}
+        <div className="p-6 space-y-5">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Personal Information</p>
+          <div className="space-y-4">
+            <div>
+              <Label className="text-xs text-slate-500 mb-1.5 block">Display Name</Label>
+              {editing ? (
+                <div className="flex gap-2">
+                  <Input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="bg-slate-50 border-slate-200 text-slate-900 flex-1"
+                    onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
+                    autoFocus
+                  />
+                  <Button size="sm" onClick={handleSaveName} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                    <Save className="h-4 w-4" />
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => { setEditing(false); setEditName(displayName); }} className="border-slate-200 text-slate-600">
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
+                  <span className="text-sm font-medium text-slate-900">
+                    {loading ? <Skeleton className="h-4 w-32 bg-slate-200" /> : displayName}
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={() => setEditing(true)} className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 h-7 w-7 p-0">
+                    <Edit2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
+            </div>
+            <div>
+              <Label className="text-xs text-slate-500 mb-1.5 block">Email Address</Label>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
+                <span className="text-sm text-slate-700">{user?.email || "—"}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="bg-white/[0.03] border-white/[0.08]">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-slate-400">
-              Calls Today
-            </CardTitle>
-            <Phone className="h-4 w-4 text-indigo-400" />
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <Skeleton className="h-8 w-16" />
-            ) : (
-              <div className="text-2xl font-bold text-white/90">
-                {stats?.callsToday || 0}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: "Calls Today", icon: Phone, iconClass: "bg-indigo-50 text-indigo-600 border-indigo-100", value: loading ? null : (stats?.callsToday ?? 0), fmt: (v: number) => String(v) },
+          { label: "Average AHT", icon: Clock, iconClass: "bg-blue-50 text-blue-600 border-blue-100", value: loading ? null : (stats?.avgAHT ?? null), fmt: (v: number) => v ? `${Math.floor(v / 60)}m ${v % 60}s` : "N/A" },
+          { label: "Average CSAT", icon: Star, iconClass: "bg-amber-50 text-amber-600 border-amber-100", value: loading ? null : (stats?.avgCSAT ?? null), fmt: (v: number) => v ? `${v}/5` : "N/A" },
+        ].map(({ label, icon: Icon, iconClass, value, fmt }) => (
+          <div key={label} className="rounded-xl border border-slate-200 bg-white shadow-sm p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</p>
+              <div className={cn("p-1.5 rounded-lg border", iconClass)}>
+                <Icon className="h-3.5 w-3.5" />
               </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="bg-white/[0.03] border-white/[0.08]">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-slate-400">
-              Average AHT
-            </CardTitle>
-            <Clock className="h-4 w-4 text-indigo-400" />
-          </CardHeader>
-          <CardContent>
+            </div>
             {loading ? (
-              <Skeleton className="h-8 w-16" />
+              <Skeleton className="h-8 w-16 bg-slate-200" />
             ) : (
-              <div className="text-2xl font-bold text-white/90">
-                {stats?.avgAHT
-                  ? `${Math.round(stats.avgAHT / 60)}m ${stats.avgAHT % 60}s`
-                  : "N/A"}
-              </div>
+              <p className="text-2xl font-bold text-slate-900">{fmt(value as number)}</p>
             )}
-          </CardContent>
-        </Card>
-
-        <Card className="bg-white/[0.03] border-white/[0.08]">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-slate-400">
-              Average CSAT
-            </CardTitle>
-            <Star className="h-4 w-4 text-amber-400" />
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <Skeleton className="h-8 w-16" />
-            ) : (
-              <div className="text-2xl font-bold text-white/90">
-                {stats?.avgCSAT ? `${stats.avgCSAT}/5` : "N/A"}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          </div>
+        ))}
       </div>
 
       {/* Sign Out */}
-      <Card className="bg-white/[0.03] border-white/[0.08]">
-        <CardContent className="pt-6">
-          <Button
-            variant="destructive"
-            onClick={handleSignOut}
-            className="w-full bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25"
-          >
-            <LogOut className="h-4 w-4 mr-2" />
-            Sign Out
-          </Button>
-        </CardContent>
-      </Card>
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-5">
+        <Button
+          onClick={handleSignOut}
+          variant="outline"
+          className="w-full bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 hover:border-red-200"
+        >
+          <LogOut className="h-4 w-4 mr-2" />
+          Sign Out
+        </Button>
+      </div>
     </div>
   );
 }
+

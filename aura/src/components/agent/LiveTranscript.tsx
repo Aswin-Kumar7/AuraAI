@@ -13,22 +13,22 @@ const speakerConfig: Record<
   agent: {
     label: "You (Agent)",
     icon: Headphones,
-    color: "text-indigo-400",
-    bg: "bg-indigo-600/15 border-indigo-500/30",
+    color: "text-indigo-600",
+    bg: "bg-indigo-600 text-white shadow-sm",
     align: "right",
   },
   customer: {
     label: "Customer",
     icon: UserRound,
-    color: "text-emerald-400",
-    bg: "bg-white/[0.03] border-white/[0.08]",
+    color: "text-slate-500",
+    bg: "bg-slate-100 text-slate-800",
     align: "left",
   },
   supervisor: {
     label: "Supervisor",
     icon: ShieldCheck,
-    color: "text-amber-400",
-    bg: "bg-amber-500/10 border-amber-500/20",
+    color: "text-amber-600",
+    bg: "bg-amber-50 border border-amber-200 text-amber-900",
     align: "left",
   },
 };
@@ -66,32 +66,27 @@ export function LiveTranscript() {
   }, [visibleTranscript.length]);
 
   return (
-    <div className="flex flex-col h-full rounded-2xl border border-white/[0.06] bg-[#020617]/95 backdrop-blur-3xl overflow-hidden shadow-2xl relative">
-      <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-indigo-500/30 to-transparent" />
-      
+    <div className="flex flex-col h-full rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-5 border-b border-white/[0.08] bg-white/[0.01]">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
-             <MessageSquare className="h-5 w-5 text-indigo-400" />
-          </div>
-          <div>
-            <h3 className="text-sm font-black text-white tracking-widest uppercase flex items-center gap-2">
-              Operational Transcript
-              <Activity className="h-3 w-3 text-emerald-500 animate-pulse" />
-            </h3>
-            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Live Dual-Channel Link</p>
-          </div>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50">
+        <div className="flex items-center gap-2.5">
+          <MessageSquare className="h-4 w-4 text-indigo-500" />
+          <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+            Transcript
+            <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-500">
+              <Activity className="h-2.5 w-2.5" /> Live
+            </span>
+          </h3>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 p-1 rounded-lg bg-slate-100">
           <button
             type="button"
             onClick={() => setChannel("all")}
             className={cn(
-              "rounded-lg border px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition",
+              "rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all",
               channel === "all"
-                ? "border-indigo-400/70 bg-indigo-500/20 text-indigo-200"
-                : "border-white/10 bg-white/5 text-slate-400 hover:border-white/20"
+                ? "bg-white text-slate-800 shadow-sm"
+                : "text-slate-400 hover:text-slate-600"
             )}
           >
             All ({transcript.length})
@@ -100,10 +95,10 @@ export function LiveTranscript() {
             type="button"
             onClick={() => setChannel("customer")}
             className={cn(
-              "rounded-lg border px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition",
+              "rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all",
               channel === "customer"
-                ? "border-emerald-400/70 bg-emerald-500/20 text-emerald-200"
-                : "border-white/10 bg-white/5 text-slate-400 hover:border-white/20"
+                ? "bg-white text-slate-800 shadow-sm"
+                : "text-slate-400 hover:text-slate-600"
             )}
           >
             Customer ({channelCounts.customer})
@@ -112,10 +107,10 @@ export function LiveTranscript() {
             type="button"
             onClick={() => setChannel("agent")}
             className={cn(
-              "rounded-lg border px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition",
+              "rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all",
               channel === "agent"
-                ? "border-indigo-400/70 bg-indigo-500/20 text-indigo-200"
-                : "border-white/10 bg-white/5 text-slate-400 hover:border-white/20"
+                ? "bg-white text-slate-800 shadow-sm"
+                : "text-slate-400 hover:text-slate-600"
             )}
           >
             Agent ({channelCounts.agent})
@@ -126,7 +121,7 @@ export function LiveTranscript() {
       {/* Transcript Area */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-white/10"
+        className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin"
       >
         <AnimatePresence initial={false}>
           {visibleTranscript.map((line, idx) => {
@@ -136,31 +131,33 @@ export function LiveTranscript() {
             return (
               <motion.div
                 key={idx}
-                initial={{ opacity: 0, y: 10, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
+                layout
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
                 className={cn(
-                  "flex flex-col group transition-all",
+                  "flex flex-col gap-1",
                   isAgent ? "items-end" : "items-start"
                 )}
               >
                 <div className={cn(
-                  "flex items-center gap-2 mb-2 px-1",
+                  "flex items-center gap-1.5 px-1",
                   isAgent ? "flex-row-reverse" : "flex-row"
                 )}>
-                   <span className={cn("text-[10px] font-black uppercase tracking-widest", config.color)}>
+                   <span className={cn("text-[10px] font-semibold uppercase tracking-wide", config.color)}>
                      {config.label}
                    </span>
-                   <span className="text-[9px] text-slate-600 font-bold font-mono">
+                   <span className="text-[9px] text-slate-400 font-mono">
                      {line.timestamp ? new Date(line.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Live"}
                    </span>
                 </div>
 
                 <div className={cn(
-                  "max-w-[85%] px-5 py-4 rounded-3xl border backdrop-blur-xl shadow-xl transition-all",
+                  "max-w-[85%] px-4 py-3 rounded-2xl transition-all",
                   config.bg,
                   isAgent ? "rounded-tr-none" : "rounded-tl-none"
                 )}>
-                  <p className="text-[14px] leading-relaxed text-white/90 font-medium tracking-tight">
+                  <p className="text-[13.5px] leading-relaxed font-medium">
                     {line.text}
                   </p>
                 </div>
@@ -170,11 +167,11 @@ export function LiveTranscript() {
         </AnimatePresence>
         
         {visibleTranscript.length === 0 && (
-          <div className="h-full flex flex-col items-center justify-center opacity-30 space-y-4">
-            <div className="p-4 rounded-full bg-slate-500/10 border border-slate-500/20">
-               <Headphones className="h-8 w-8 text-slate-500" />
+          <div className="h-full flex flex-col items-center justify-center space-y-3 py-16">
+            <div className="p-4 rounded-full bg-slate-100 border border-slate-200">
+               <Headphones className="h-7 w-7 text-slate-300" />
             </div>
-            <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.3em]">Waiting for voice activity</p>
+            <p className="text-[11px] text-slate-400 font-medium uppercase tracking-widest">Waiting for voice activity</p>
           </div>
         )}
       </div>

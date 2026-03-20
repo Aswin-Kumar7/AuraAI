@@ -49,10 +49,10 @@ export default function AgentLayout({ children }: { children: ReactNode }) {
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[#060a14]">
+      <div className="h-screen flex items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 animate-pulse" />
-          <p className="text-xs text-slate-500 animate-pulse">Loading Aura…</p>
+          <div className="h-8 w-8 rounded-xl bg-indigo-600 shadow-lg shadow-indigo-500/30 animate-pulse" />
+          <p className="text-xs text-slate-400 animate-pulse">Loading Aura…</p>
         </div>
       </div>
     );
@@ -61,7 +61,7 @@ export default function AgentLayout({ children }: { children: ReactNode }) {
   if (!user || role !== "agent") return null;
 
   return (
-    <div className="h-screen flex bg-[#060a14] text-foreground overflow-hidden">
+    <div className="h-screen flex bg-slate-50 text-foreground overflow-hidden">
       <AgentSidebar />
       <main className="flex-1 overflow-y-auto">{children}</main>
     </div>
