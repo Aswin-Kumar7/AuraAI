@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
+import { finalizeCallAndGenerateSummary } from "@/lib/call-finalization";
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,27 +13,35 @@ export async function POST(request: NextRequest) {
 
     if (parentCallSid) {
        const isEnded = status === "completed" || status === "busy" || status === "no-answer" || status === "failed";
-       
-       // 1. Update live call state for historical record/status
-       await adminDb.collection("liveCallState").doc(parentCallSid).update({
+       const now = new Date().toISOString();
+
+       await adminDb.collection("liveCallState").doc(parentCallSid).set({
           customerCallSid: callSid,
           customerStatus: status,
-          status: isEnded ? "ended" : "active"
-       });
+          lastCustomerEventAt: now,
+          status: isEnded ? "completed" : "active"
+       }, { merge: true });
 
-       // 2. If ended, clear agent presence so dashboard returns to standby
        if (isEnded) {
-          // Look up which agent was on this call (we can get this from liveCallState if needed, 
-          // but usually the caller identity is the Agent UID)
-          const liveSnap = await adminDb.collection("liveCallState").doc(parentCallSid).get();
-          const agentId = liveSnap.data()?.agentId;
-          
-          if (agentId) {
-             await adminDb.collection("agentPresence").doc(agentId).set({
+          try {
+            await finalizeCallAndGenerateSummary({
+              callId: parentCallSid,
+              endedAt: now,
+              endReason: `customer-${status}`,
+            });
+          } catch (finalizeError) {
+            console.error("[Customer Event] Finalization error:", finalizeError);
+
+            const liveSnap = await adminDb.collection("liveCallState").doc(parentCallSid).get();
+            const agentId = liveSnap.data()?.agentId;
+            if (agentId) {
+              await adminDb.collection("agentPresence").doc(agentId).set({
                 status: "available",
                 callId: null,
-                updatedAt: new Date().toISOString()
-             }, { merge: true });
+                incomingCall: null,
+                updatedAt: now,
+              }, { merge: true });
+            }
           }
        }
     }

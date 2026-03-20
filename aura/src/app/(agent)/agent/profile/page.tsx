@@ -17,6 +17,13 @@ interface Stats {
   avgCSAT: number;
 }
 
+interface CallerProfile {
+  phone: string;
+  name: string;
+  callCount: number;
+  profileSummary: string;
+}
+
 function toDisplayName(user: { displayName?: string | null; email?: string | null } | null): string {
   const explicit = user?.displayName?.trim();
   if (explicit) return explicit;
@@ -42,7 +49,9 @@ function getAvatarColor(str: string): string {
 export default function ProfilePage() {
   const { user } = useAuth();
   const [stats, setStats] = useState<Stats | null>(null);
+  const [callerProfiles, setCallerProfiles] = useState<CallerProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingProfiles, setLoadingProfiles] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -67,7 +76,27 @@ export default function ProfilePage() {
         setLoading(false);
       }
     };
+
+    const fetchCallerProfiles = async () => {
+      setLoadingProfiles(true);
+      try {
+        const contactsRes = await fetch("/api/agent/contacts");
+        if (contactsRes.ok) {
+          const data = await contactsRes.json();
+          const profiledContacts = (data.contacts || [])
+            .filter((c: CallerProfile) => c.profileSummary && c.profileSummary.length > 0)
+            .slice(0, 5);
+          setCallerProfiles(profiledContacts);
+        }
+      } catch (error) {
+        console.error("Could not load caller profiles:", error);
+      } finally {
+        setLoadingProfiles(false);
+      }
+    };
+
     fetchStats();
+    fetchCallerProfiles();
   }, [user]);
 
   const handleSaveName = async () => {
@@ -199,6 +228,41 @@ export default function ProfilePage() {
           </div>
         ))}
       </div>
+
+      {/* Caller Profiles */}
+      {callerProfiles.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div className="border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-slate-50 px-6 py-4">
+            <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              <User className="h-4 w-4 text-emerald-600" />
+              Your Caller Insights
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">Multi-call profiles of repeat callers you interact with</p>
+          </div>
+          <div className="p-6 space-y-4">
+            {loadingProfiles ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-20 bg-slate-200 rounded-lg" />
+              ))
+            ) : (
+              callerProfiles.map((profile, idx) => (
+                <div key={profile.phone} className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+                  <div className="flex items-start gap-3 mb-2">
+                    <div className="h-8 w-8 rounded-full bg-emerald-200 flex items-center justify-center text-emerald-700 font-bold text-xs shrink-0">
+                      #{idx + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-emerald-900">{profile.name}</p>
+                      <p className="text-xs text-emerald-700 font-mono">{profile.phone} • {profile.callCount} call{profile.callCount !== 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-emerald-900 leading-relaxed pl-11">{profile.profileSummary}</p>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Sign Out */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-5">

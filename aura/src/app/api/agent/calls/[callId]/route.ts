@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 // Removed MongoDB imports for Firestore migration
+import { deriveIssueCategory } from "@/lib/call-categorization";
 
 async function requireAgentContext() {
   const cookieStore = await cookies();
@@ -32,6 +33,38 @@ export async function GET(request: Request, { params }: { params: Promise<{ call
 
     const { callId } = await params;
 
+    const normalizeSummary = (summary: any) => {
+      const source = (summary && typeof summary === "object") ? summary : {};
+      const nextSteps = Array.isArray(source.nextSteps)
+        ? source.nextSteps.map((step: unknown) => String(step || "").trim()).filter((step: string) => step.length > 0)
+        : source.nextAction
+          ? [String(source.nextAction)]
+          : [];
+
+      return {
+        ...source,
+        briefSummary:
+          source.briefSummary ||
+          source.issueSummary ||
+          source.resolutionSummary ||
+          source.summary ||
+          "",
+        customerSentiment:
+          source.customerSentiment ||
+          source.sentimentArcDescription ||
+          "Unknown",
+        resolutionAction:
+          source.resolutionAction ||
+          source.nextAction ||
+          source.resolutionSummary ||
+          "",
+        nextSteps,
+        callQualityScore: Number.isFinite(Number(source.callQualityScore))
+          ? Number(source.callQualityScore)
+          : 0,
+      };
+    };
+
     // Fetch from Firestore 'calls' collection
     const callSnap = await adminDb.collection("calls").doc(callId).get();
 
@@ -55,7 +88,36 @@ export async function GET(request: Request, { params }: { params: Promise<{ call
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
-    return NextResponse.json({ id: callSnap.id, ...call });
+    const liveSnap = await adminDb.collection("liveCallState").doc(callId).get();
+    const liveData = (liveSnap.data() || {}) as any;
+
+    const transcript = Array.isArray(call?.transcript)
+      ? call.transcript
+      : Array.isArray(liveData.transcript)
+        ? liveData.transcript
+        : [];
+    const sentimentArc = Array.isArray(call?.sentimentArc)
+      ? call.sentimentArc
+      : Array.isArray(liveData.sentimentArc)
+        ? liveData.sentimentArc
+        : [];
+
+    const summary = normalizeSummary(call?.summary);
+    const issueCategory = deriveIssueCategory({
+      explicitIssueCategory: call?.issueCategory,
+      intent: call?.intent || liveData.intent,
+      intentTrend: call?.intentTrend || liveData.intentTrend,
+      issueSummary: summary.issueSummary || summary.briefSummary,
+    });
+
+    return NextResponse.json({
+      id: callSnap.id,
+      ...call,
+      transcript,
+      sentimentArc,
+      summary,
+      issueCategory,
+    });
   } catch (error: any) {
     console.error("Error fetching call:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

@@ -15,6 +15,14 @@ export async function POST(request: NextRequest) {
     // Extract Agent ID from the client identity (preferred) or explicit param
     const identityMatch = originalFrom?.match(/client:(.*)/);
     const agentId = explicitAgentId || (identityMatch ? identityMatch[1] : "unknown-agent");
+    let companyId = "aura-demo-id";
+
+    try {
+      const agentDoc = await adminDb.collection("users").doc(agentId).get();
+      companyId = agentDoc.data()?.companyId || "aura-demo-id";
+    } catch {
+      // Keep default fallback company.
+    }
 
     console.log(`[Twilio Client Voice] Dialing To: ${To}, From: ${From}, Agent: ${agentId}`);
 
@@ -52,24 +60,21 @@ export async function POST(request: NextRequest) {
         callId: callSid,
         callerPhone: To,
         agentId: agentId,
+        companyId,
         status: "active",
         createdAt: new Date().toISOString(),
       });
     } catch (saveErr) {}
 
     try {
-      // 1. Fetch Agent's Company
-      const agentDoc = await adminDb.collection("users").doc(agentId).get();
-      const companyId = agentDoc.data()?.companyId || "aura-demo-id";
-
-      // 2. Update Presence
+      // 1. Update Presence
       await adminDb.collection("agentPresence").doc(agentId).set({
         status: "on-call",
         callId: callSid,
         updatedAt: new Date().toISOString(),
       }, { merge: true });
 
-      // 3. Init Live State (With Company context)
+      // 2. Init Live State (With Company context)
       await adminDb.collection("liveCallState").doc(callSid).set({
         callId: callSid,
         agentId: agentId,

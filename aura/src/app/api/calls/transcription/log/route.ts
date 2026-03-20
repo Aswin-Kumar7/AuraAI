@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb, adminAuth } from "@/lib/firebase-admin";
+import { adminDb } from "@/lib/firebase-admin";
 import { FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
+
+const INTERNAL_API_SECRET =
+  process.env.INTERNAL_API_SECRET || "aura_internal_prod_secret_123";
 
 const logTranscriptionSchema = z.object({
   callId: z.string().min(1, "callId required"),
@@ -59,13 +62,13 @@ export async function POST(request: NextRequest) {
     // Add transcript entry using proper Firebase FieldValue
     try {
       await liveRef.update({
-        transcript: FieldValue.arrayUnion([{
+        transcript: FieldValue.arrayUnion({
           speaker,
           text: text.trim(),
           timestamp: ts,
           confidence: confidence ?? 0.95,
           source: source ?? "manual",
-        }]),
+        }),
         lastTranscriptAt: ts,
         viewed: false,
       });
@@ -83,6 +86,28 @@ export async function POST(request: NextRequest) {
         );
       }
       throw firestoreError;
+    }
+
+    // Keep live intelligence updated even when transcript comes from fallback path.
+    try {
+      const analyzeUrl = new URL("/api/ai/analyze", request.url).toString();
+      await fetch(analyzeUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-internal-secret": INTERNAL_API_SECRET,
+        },
+        body: JSON.stringify({
+          callId,
+          newLine: {
+            speaker,
+            text: text.trim(),
+            timestamp: ts,
+          },
+        }),
+      });
+    } catch (analysisError) {
+      console.warn("[Transcription Log] Analysis trigger failed:", analysisError);
     }
 
     return NextResponse.json({

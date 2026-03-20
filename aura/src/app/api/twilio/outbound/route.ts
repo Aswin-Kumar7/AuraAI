@@ -49,6 +49,8 @@ export async function POST(request: NextRequest) {
 
     const db = adminDb;
     const batch = db.batch();
+    const agentUserSnap = await db.collection("users").doc(uid).get();
+    const companyId = agentUserSnap.data()?.companyId || "aura-demo-id";
 
     // 1. Create Call Record (Replacing MongoDB)
     const callRef = db.collection("calls").doc(call.sid);
@@ -56,6 +58,7 @@ export async function POST(request: NextRequest) {
       callId: call.sid,
       callerPhone: to,
       agentId: uid,
+      companyId,
       status: "active",
       createdAt: new Date().toISOString(),
     });
@@ -73,6 +76,7 @@ export async function POST(request: NextRequest) {
     batch.set(liveRef, {
       callId: call.sid,
       agentId: uid,
+      companyId,
       status: "active",
       twilioInboundSpeaker: "customer",
       twilioOutboundSpeaker: "agent",

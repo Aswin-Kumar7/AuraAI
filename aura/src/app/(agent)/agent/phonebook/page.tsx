@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Phone, History, BookUser, Plus, X } from "lucide-react";
+import { Search, Phone, History, BookUser, Plus, X, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -23,6 +23,7 @@ interface ContactData {
   lastCallAt: string;
   lastIssue: string;
   summaries: string[];
+  profileSummary?: string;
 }
 
 const CONTACT_AVATAR_COLORS = ["bg-indigo-600", "bg-violet-500", "bg-blue-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500"];
@@ -366,6 +367,15 @@ export default function PhonebookPage() {
               >
                 <Phone className="h-4 w-4 mr-2" /> Start Call Now
               </Button>
+
+              {selectedContact.profileSummary && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-emerald-700 flex items-center gap-2">
+                    <User className="h-3.5 w-3.5" /> Caller Profile
+                  </h3>
+                  <p className="text-sm text-emerald-900 leading-relaxed">{selectedContact.profileSummary}</p>
+                </div>
+              )}
 
               <div>
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">

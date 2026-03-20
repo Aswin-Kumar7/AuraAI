@@ -226,10 +226,6 @@ async function triggerLiveAnalysis(
   speaker: "agent" | "customer" | "supervisor",
   timestamp: string
 ) {
-  if (speaker !== "customer") {
-    return;
-  }
-
   const trimmed = transcript.trim();
   if (trimmed.length < 3) {
     return;
@@ -237,7 +233,9 @@ async function triggerLiveAnalysis(
 
   const analyzeUrl = new URL("/api/ai/analyze", request.url).toString();
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  // Increased timeout to 15 seconds to accommodate Groq API latency
+  // Groq typically takes 2-10s, plus network overhead
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
 
   try {
     const res = await fetch(analyzeUrl, {
@@ -249,7 +247,7 @@ async function triggerLiveAnalysis(
       body: JSON.stringify({
         callId,
         newLine: {
-          speaker: "customer",
+          speaker,
           text: trimmed,
           timestamp,
         },
@@ -267,7 +265,11 @@ async function triggerLiveAnalysis(
 
     console.log(`[HYBRID] Analysis refreshed for call ${callId}`);
   } catch (error) {
-    console.warn("[HYBRID] Analysis trigger error:", error);
+    if (error instanceof Error && error.name === "AbortError") {
+      console.warn(`[HYBRID] Analysis timeout for call ${callId} (15s exceeded). Continuing without real-time analysis.`);
+    } else {
+      console.warn("[HYBRID] Analysis trigger error:", error);
+    }
   } finally {
     clearTimeout(timeoutId);
   }

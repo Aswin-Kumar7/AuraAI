@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import twilio from "twilio";
-import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { adminAuth } from "@/lib/firebase-admin";
+import { finalizeCallAndGenerateSummary } from "@/lib/call-finalization";
 
 const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID!,
@@ -34,34 +35,17 @@ export async function POST(
       console.warn("[Twilio] End call failed (might already be ended):", twilioError);
     }
 
-    // 2. Update Firestore liveCallState (Dashboard & Session Management)
-    await adminDb.collection("liveCallState").doc(callId).update({
-      status: "ended",
-      activeMode: "auto",
-      endedAt: new Date().toISOString(),
+    // 2. Finalize and summarize call in one shared backend path.
+    const finalized = await finalizeCallAndGenerateSummary({
+      callId,
+      agentId: uid,
+      endReason: "manual-end",
     });
-
-    // 3. Update agentPresence → available
-    await adminDb.collection("agentPresence").doc(uid).update({
-      status: "available",
-      callId: null,
-      incomingCall: null,
-      updatedAt: new Date().toISOString(),
-    });
-
-    // 4. Update the call record itself if it exists in the 'calls' collection
-    try {
-      await adminDb.collection("calls").doc(callId).update({
-        status: "completed",
-        endedAt: new Date().toISOString(),
-      });
-    } catch (err) {
-      // It might not exist in the 'calls' collection yet or might be in liveCallState only
-    }
 
     return NextResponse.json({ 
       success: true, 
-      message: "Call ended successfully in Firebase and Twilio"
+      message: "Call ended and summarized successfully",
+      result: finalized,
     });
 
   } catch (error: any) {

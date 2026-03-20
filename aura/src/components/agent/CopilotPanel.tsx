@@ -27,9 +27,38 @@ export function CopilotPanel() {
 
   const mode: Mode = activeMode === "alert" ? "Alert" : activeMode === "auto" ? "Auto" : "Whisper";
 
-  const switchMode = (next: Mode) => {
-    setActiveMode(next.toLowerCase() as "whisper" | "alert" | "auto");
-    updateAnalysis({ activeMode: next.toLowerCase() as "whisper" | "alert" | "auto" });
+  const switchMode = async (next: Mode) => {
+    const normalizedMode = next.toLowerCase() as "whisper" | "alert" | "auto";
+    const previousMode =
+      activeMode === "whisper" || activeMode === "alert" || activeMode === "auto"
+        ? activeMode
+        : null;
+
+    setActiveMode(normalizedMode);
+    updateAnalysis({ activeMode: normalizedMode });
+
+    if (!callId) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/calls/${callId}/mode`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: normalizedMode }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to persist mode (${response.status})`);
+      }
+    } catch (error) {
+      console.error("[CopilotPanel] Mode persistence failed:", error);
+
+      if (previousMode) {
+        setActiveMode(previousMode);
+        updateAnalysis({ activeMode: previousMode });
+      }
+    }
   };
 
   const isWhisper = mode === "Whisper";

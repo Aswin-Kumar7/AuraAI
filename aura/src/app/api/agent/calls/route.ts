@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { deriveIssueCategory } from "@/lib/call-categorization";
 
 async function requireAgentContext() {
   const cookieStore = await cookies();
@@ -47,10 +48,53 @@ export async function GET(request: Request) {
     // So we'll fetch then filter for search if requested, or keep it simple
     
     const snapshot = await query.get();
-    let calls = snapshot.docs.map((doc: any) => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    const normalizeSummary = (summary: any) => {
+      const source = (summary && typeof summary === "object") ? summary : {};
+      const nextSteps = Array.isArray(source.nextSteps)
+        ? source.nextSteps.map((step: unknown) => String(step || "").trim()).filter((step: string) => step.length > 0)
+        : [];
+
+      return {
+        ...source,
+        briefSummary:
+          source.briefSummary ||
+          source.issueSummary ||
+          source.resolutionSummary ||
+          source.summary ||
+          "",
+        customerSentiment:
+          source.customerSentiment ||
+          source.sentimentArcDescription ||
+          "Unknown",
+        resolutionAction:
+          source.resolutionAction ||
+          source.nextAction ||
+          source.resolutionSummary ||
+          "",
+        nextSteps,
+        callQualityScore: Number.isFinite(Number(source.callQualityScore))
+          ? Number(source.callQualityScore)
+          : 0,
+      };
+    };
+
+    let calls = snapshot.docs.map((doc: any) => {
+      const data = doc.data() as any;
+      const summary = normalizeSummary(data.summary);
+      const issueCategory = deriveIssueCategory({
+        explicitIssueCategory: data.issueCategory,
+        intent: data.intent,
+        intentTrend: data.intentTrend,
+        issueSummary: summary.issueSummary || summary.briefSummary,
+      });
+
+      return {
+        id: doc.id,
+        ...data,
+        summary,
+        issueCategory,
+      };
+    });
 
     if (search) {
       const lowerSearch = search.toLowerCase();

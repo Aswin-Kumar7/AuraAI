@@ -10,7 +10,14 @@ async function requireAgentContext() {
 
   try {
     const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
-    return decoded.uid;
+    const uid = decoded.uid;
+    if (!uid) return null;
+
+    const userSnap = await adminDb.collection("users").doc(uid).get();
+    const companyId = userSnap.data()?.companyId;
+    if (!companyId) return null;
+
+    return { uid, companyId: String(companyId) };
   } catch {
     return null;
   }
@@ -18,14 +25,23 @@ async function requireAgentContext() {
 
 export async function GET() {
   try {
-    const uid = await requireAgentContext();
-    if (!uid) {
+    const ctx = await requireAgentContext();
+    if (!ctx) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const { uid, companyId } = ctx;
+
     // First, fetch stored custom contact names from agentContacts collection
     const customContactsSnap = await adminDb.collection("agentContacts").doc(uid).collection("contacts").get();
-    const customContacts: Record<string, { name: string; callCount?: number; lastCallAt?: string; lastIssue?: string; summaries?: string[] }> = {};
+    const customContacts: Record<string, {
+      name: string;
+      callCount?: number;
+      lastCallAt?: string;
+      lastIssue?: string;
+      summaries?: string[];
+      profileSummary?: string;
+    }> = {};
 
     customContactsSnap.docs.forEach((doc) => {
       const data = doc.data();
@@ -35,6 +51,7 @@ export async function GET() {
         lastCallAt: data.lastCallAt || "",
         lastIssue: data.lastIssue || "",
         summaries: data.summaries || [],
+        profileSummary: data.profileSummary || "",
       };
     });
 
@@ -60,7 +77,7 @@ export async function GET() {
         callerPhone?: string;
         createdAt?: string;
         issueCategory?: string;
-        summary?: { briefSummary?: string };
+        summary?: any;
       };
       const phone = data.callerPhone || "Unknown";
       
@@ -75,32 +92,121 @@ export async function GET() {
       }
       
       contactMap[phone].callCount++;
-      if (data.summary?.briefSummary) {
-        contactMap[phone].summaries.push(data.summary.briefSummary);
+      const briefSummary =
+        data.summary?.briefSummary ||
+        data.summary?.issueSummary ||
+        data.summary?.resolutionSummary ||
+        "";
+
+      if (briefSummary) {
+        contactMap[phone].summaries.push(briefSummary);
       }
     });
 
-    const contacts = Object.values(contactMap).slice(0, 50);
+    const memorySnap = await adminDb
+      .collection("callerMemory")
+      .where("companyId", "==", companyId)
+      .limit(300)
+      .get();
 
-    const mappedContacts = contacts.map((c) => {
-      const contact = c as {
-        phone: string;
-        callCount: number;
-        lastCallAt: string;
-        lastIssue: string;
-        summaries: string[];
+    const memoryByPhone: Record<string, {
+      callCount: number;
+      lastCallAt: string;
+      lastIssue: string;
+      summaries: string[];
+      profileSummary: string;
+    }> = {};
+
+    memorySnap.docs.forEach((doc) => {
+      const data = doc.data() as {
+        phone?: string;
+        callCount?: number;
+        lastIssue?: string;
+        history?: Array<{ date?: string; summary?: string }>;
+        profileSummary?: string;
       };
 
-      // Use custom name if it exists, otherwise generate a fake one
-      const customContact = customContacts[contact.phone];
-      const name = customContact?.name || `Customer User#${Math.floor(Math.random() * 9000) + 1000}`;
+      const phone = String(data.phone || "").trim();
+      if (!phone) return;
 
-      return {
-        ...contact,
-        name,
-        summaries: (contact.summaries || []).filter(Boolean),
+      const history = Array.isArray(data.history) ? data.history : [];
+      const sortedHistory = [...history].sort(
+        (a, b) => Date.parse(String(b?.date || "")) - Date.parse(String(a?.date || ""))
+      );
+
+      memoryByPhone[phone] = {
+        callCount: Number(data.callCount || 0),
+        lastIssue: String(data.lastIssue || ""),
+        lastCallAt: String(sortedHistory[0]?.date || ""),
+        summaries: sortedHistory
+          .map((entry) => String(entry?.summary || "").trim())
+          .filter((summary) => summary.length > 0)
+          .slice(0, 6),
+        profileSummary: String(data.profileSummary || ""),
       };
     });
+
+    const allPhones = new Set<string>([
+      ...Object.keys(contactMap),
+      ...Object.keys(customContacts),
+      ...Object.keys(memoryByPhone),
+    ]);
+
+    const mappedContacts = Array.from(allPhones).map((phone) => {
+      const fromCalls = contactMap[phone] || {
+        phone,
+        callCount: 0,
+        lastCallAt: "",
+        lastIssue: "",
+        summaries: [],
+      };
+
+      const fromCustom = customContacts[phone] || {
+        name: "",
+        callCount: 0,
+        lastCallAt: "",
+        lastIssue: "",
+        summaries: [],
+        profileSummary: "",
+      };
+
+      const fromMemory = memoryByPhone[phone] || {
+        callCount: 0,
+        lastCallAt: "",
+        lastIssue: "",
+        summaries: [],
+        profileSummary: "",
+      };
+
+      const uniqueSummaries = Array.from(
+        new Set<string>([
+          ...fromCalls.summaries,
+          ...(fromCustom.summaries || []),
+          ...fromMemory.summaries,
+        ].filter((value) => value && value.trim().length > 0))
+      ).slice(0, 6);
+
+      const digits = phone.replace(/\D/g, "");
+      const fallbackName = digits.length >= 4
+        ? `Customer ${digits.slice(-4)}`
+        : "Customer";
+
+      return {
+        phone,
+        name: fromCustom.name || fallbackName,
+        callCount: Math.max(
+          fromCalls.callCount,
+          Number(fromCustom.callCount || 0),
+          fromMemory.callCount
+        ),
+        lastCallAt: fromCalls.lastCallAt || fromMemory.lastCallAt || String(fromCustom.lastCallAt || ""),
+        lastIssue: fromCalls.lastIssue || fromMemory.lastIssue || String(fromCustom.lastIssue || ""),
+        summaries: uniqueSummaries,
+        profileSummary: fromMemory.profileSummary || String(fromCustom.profileSummary || ""),
+      };
+    })
+      .sort((a, b) => Date.parse(b.lastCallAt || "") - Date.parse(a.lastCallAt || ""))
+      .slice(0, 50);
 
     return NextResponse.json({ contacts: mappedContacts });
   } catch (error) {
@@ -111,8 +217,9 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const uid = await requireAgentContext();
-    if (!uid) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ctx = await requireAgentContext();
+    if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { uid } = ctx;
 
     const body = await request.json();
     const contact = body.contact;
@@ -139,8 +246,9 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const uid = await requireAgentContext();
-    if (!uid) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ctx = await requireAgentContext();
+    if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { uid } = ctx;
 
     const body = await request.json();
     const phone = body.phone;

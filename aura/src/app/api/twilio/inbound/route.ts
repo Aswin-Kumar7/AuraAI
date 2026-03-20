@@ -30,6 +30,9 @@ export async function POST(request: NextRequest) {
     const agentSnap = agentSnapshot.docs[0];
     const agentId = agentSnap.id;
 
+    const agentUserSnap = await db.collection("users").doc(agentId).get();
+    const companyId = agentUserSnap.data()?.companyId || "aura-demo-id";
+
     // Assign call and initialize state in Firestore
     const batch = db.batch();
     
@@ -47,6 +50,7 @@ export async function POST(request: NextRequest) {
       callId: callSid,
       callerPhone: from,
       agentId: agentId,
+      companyId,
       status: "active",
       createdAt: new Date().toISOString(),
     });
@@ -56,6 +60,7 @@ export async function POST(request: NextRequest) {
     batch.set(liveRef, {
       callId: callSid,
       agentId: agentId,
+      companyId,
       status: "active",
       twilioInboundSpeaker: "customer",
       twilioOutboundSpeaker: "agent",

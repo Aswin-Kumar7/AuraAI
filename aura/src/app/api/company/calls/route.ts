@@ -17,9 +17,14 @@ export async function GET(request: Request) {
         id: doc.id,
         timestamp: data.createdAt || new Date().toISOString(),
         callerMasked: data.callerPhone || "Unknown",
-        issue: data.summary || data.lastTopic || "N/A",
+        issue:
+          data.issueCategory ||
+          data.summary?.briefSummary ||
+          data.summary?.issueSummary ||
+          data.lastTopic ||
+          "N/A",
         duration: data.duration || 0,
-        resolved: !!data.isResolved,
+        resolved: !!(data.resolved ?? data.isResolved),
         agentId: data.agentId || "Unknown"
       };
     });

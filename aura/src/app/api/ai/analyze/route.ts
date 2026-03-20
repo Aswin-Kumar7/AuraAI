@@ -110,6 +110,8 @@ export async function POST(request: Request) {
       callerPhone?: string;
       lastAnalyzedAt?: number;
       intentTrend?: IntentTrendPoint[];
+      activeMode?: string;
+      modeLockedByAgent?: boolean;
     };
 
     let transcript: TranscriptLine[] = [];
@@ -348,9 +350,14 @@ export async function POST(request: Request) {
     const detectedLanguage: string = parsedAi.detectedLanguage || language;
     const liveSummary: string = parsedAi.liveSummary || "";
 
-    // Determine mode: alert if compliance issue, escalation risk > 0.6, or low sentiment
-    const mode =
-      complianceAlert || escalationRisk > 0.6 || sentiment < alertThreshold ? "alert" : "whisper";
+    // Keep Auto mode locked when selected by agent, unless critical risk requires Alert mode.
+    const criticalAlert =
+      complianceAlert || escalationRisk > 0.6 || sentiment < alertThreshold;
+    const lockedAuto =
+      !!liveData?.modeLockedByAgent &&
+      String(liveData?.activeMode || "").toLowerCase() === "auto";
+
+    const mode = criticalAlert ? "alert" : lockedAuto ? "auto" : "whisper";
 
     const trendPoint: IntentTrendPoint = {
       intent,
