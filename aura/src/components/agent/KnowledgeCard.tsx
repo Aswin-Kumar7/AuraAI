@@ -8,9 +8,14 @@ import { motion, AnimatePresence } from "framer-motion";
 
 export function KnowledgeCard() {
   const knowledgeSnippet = useCallStore((s) => s.knowledgeSnippet);
+  const policySuggestion = useCallStore((s) => s.policySuggestion);
+  const inferredNeed = useCallStore((s) => s.inferredNeed);
+  const intent = useCallStore((s) => s.intent);
   const [expanded, setExpanded] = useState(false);
 
-  if (!knowledgeSnippet) return null;
+  const displaySnippet = policySuggestion || knowledgeSnippet;
+
+  if (!displaySnippet && !inferredNeed) return null;
 
   return (
     <AnimatePresence>
@@ -28,7 +33,7 @@ export function KnowledgeCard() {
             <div className="h-6 w-6 rounded-lg bg-indigo-500/20 flex items-center justify-center">
               <BookOpen className="h-3 w-3" />
             </div>
-            KB Insight
+            Policy Insight
           </div>
           <div className="p-1 rounded-md hover:bg-white/5 transition-colors">
             {expanded ? (
@@ -39,14 +44,28 @@ export function KnowledgeCard() {
           </div>
         </button>
 
-        <p
-          className={cn(
-            "text-[12px] leading-relaxed text-white/70 transition-all duration-200",
-            expanded ? "" : "line-clamp-2"
-          )}
-        >
-          {knowledgeSnippet}
-        </p>
+        {intent && (
+          <p className="text-[10px] uppercase tracking-wide text-indigo-300/80">
+            Intent: {intent.replace(/_/g, " ")}
+          </p>
+        )}
+
+        {inferredNeed && (
+          <p className="text-[11px] text-slate-300/90 leading-relaxed">
+            Customer likely needs: {inferredNeed}
+          </p>
+        )}
+
+        {displaySnippet && (
+          <p
+            className={cn(
+              "text-[12px] leading-relaxed text-white/70 transition-all duration-200",
+              expanded ? "" : "line-clamp-2"
+            )}
+          >
+            {displaySnippet}
+          </p>
+        )}
       </motion.div>
     </AnimatePresence>
   );

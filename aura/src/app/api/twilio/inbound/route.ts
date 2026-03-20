@@ -57,6 +57,8 @@ export async function POST(request: NextRequest) {
       callId: callSid,
       agentId: agentId,
       status: "active",
+      twilioInboundSpeaker: "customer",
+      twilioOutboundSpeaker: "agent",
       transcript: [],
       currentSuggestions: [],
       sentimentScore: null,
@@ -82,7 +84,7 @@ export async function POST(request: NextRequest) {
     const connect = twiml.connect();
     connect.stream({
       url: finalWsUrl,
-      track: "inbound_track",
+      track: "both_tracks",
     });
 
     return new NextResponse(twiml.toString(), {

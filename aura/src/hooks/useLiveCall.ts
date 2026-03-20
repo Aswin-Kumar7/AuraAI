@@ -56,15 +56,20 @@ export function useLiveCall() {
           if (result.isFinal) {
             const transcript = result[0]?.transcript?.trim();
             const confidence = result[0]?.confidence ?? 0;
+            const hasConfidence = typeof confidence === "number" && confidence > 0;
 
             if (!transcript || transcript.length < 2) {
               console.debug("[Speech] Skipping empty or very short transcript");
               return;
             }
 
-            if (confidence < 0.5) {
+            if (hasConfidence && confidence < 0.5) {
               console.debug(`[Speech] Low confidence (${(confidence * 100).toFixed(1)}%), skipping: "${transcript}"`);
               return;
+            }
+
+            if (!hasConfidence) {
+              console.debug(`[Speech] Confidence unavailable, accepting transcript: "${transcript}"`);
             }
 
             console.log(`✅ [Speech] Agent: "${transcript}" (confidence: ${(confidence * 100).toFixed(1)}%)`);
@@ -77,6 +82,7 @@ export function useLiveCall() {
                 body: JSON.stringify({
                   callId,
                   source: "browser",
+                  speaker: "agent",
                   transcript,
                   confidence,
                   language: "en-IN",
@@ -236,20 +242,101 @@ export function useLiveCall() {
                 return;
               }
 
-              const transcript: TranscriptLine[] = (live.transcript || []).map((l: any) => ({
-                speaker: l.speaker,
-                text: l.text,
-                timestamp: l.timestamp,
-              }));
+              const inferSpeaker = (line: any): "agent" | "customer" | "supervisor" => {
+                const explicit = String(line?.speaker || "").toLowerCase();
+                if (explicit === "agent" || explicit === "customer" || explicit === "supervisor") {
+                  return explicit;
+                }
+
+                const source = String(line?.source || line?.engine || "").toLowerCase();
+                if (source.includes("agent") || source.includes("browser")) {
+                  return "agent";
+                }
+                if (source.includes("customer") || source.includes("twilio") || source.includes("groq") || source.includes("google")) {
+                  return "customer";
+                }
+
+                return "customer";
+              };
+
+              const transcript: TranscriptLine[] = (live.transcript || [])
+                .map((l: any) => ({
+                  speaker: inferSpeaker(l),
+                  text: String(l?.text || "").trim(),
+                  timestamp: l?.timestamp,
+                }))
+                .filter((l: TranscriptLine) => l.text.length > 0)
+                .sort((a: TranscriptLine, b: TranscriptLine) => {
+                  const ta = a.timestamp ? Date.parse(a.timestamp) : 0;
+                  const tb = b.timestamp ? Date.parse(b.timestamp) : 0;
+                  return ta - tb;
+                });
 
               updateTranscript(transcript);
               updateAnalysis({
                 callId,
                 intent: live.intent || null,
+                intentConfidence:
+                  typeof live.intentConfidence === "number"
+                    ? live.intentConfidence
+                    : null,
+                inferredNeed: live.inferredNeed || "",
+                customerDisposition: live.customerDisposition || null,
                 isPreviousIssue: !!live.isPreviousIssue,
                 sentimentScore: live.sentimentScore ?? null,
                 sentimentLabel: live.sentimentLabel ?? null,
-                suggestions: live.currentSuggestions || [],
+                suggestions: Array.isArray(live.currentSuggestions)
+                  ? live.currentSuggestions.map((s: unknown, idx: number) => {
+                      const item =
+                        typeof s === "object" && s !== null
+                          ? (s as Record<string, unknown>)
+                          : {};
+                      return {
+                        text: String(item.text || "").trim(),
+                        tone: String(item.tone || "neutral"),
+                        rank: typeof item.rank === "number" ? item.rank : idx + 1,
+                        resolutionLikelihood:
+                          typeof item.resolutionLikelihood === "number"
+                            ? item.resolutionLikelihood
+                            : undefined,
+                      };
+                    }).filter((s: { text: string }) => s.text.length > 0)
+                  : [],
+                policySuggestion: live.policySuggestion || "",
+                policyMatchScore:
+                  typeof live.policyMatchScore === "number"
+                    ? live.policyMatchScore
+                    : null,
+                intentTrend: Array.isArray(live.intentTrend)
+                  ? live.intentTrend
+                      .map((p: unknown) => {
+                        const point =
+                          typeof p === "object" && p !== null
+                            ? (p as Record<string, unknown>)
+                            : {};
+                        return {
+                          intent: String(point.intent || "other"),
+                          confidence:
+                            typeof point.confidence === "number"
+                              ? point.confidence
+                              : 0,
+                          policyMatchScore:
+                            typeof point.policyMatchScore === "number"
+                              ? point.policyMatchScore
+                              : 0,
+                          timestamp: String(
+                            point.timestamp || new Date().toISOString()
+                          ),
+                        };
+                      })
+                      .slice(-30)
+                  : [],
+                knowledgeCandidates: Array.isArray(live.knowledgeCandidates)
+                  ? live.knowledgeCandidates
+                      .map((c: unknown) => String(c || "").trim())
+                      .filter((c: string) => c.length > 0)
+                      .slice(0, 3)
+                  : [],
                 complianceAlert: !!live.complianceAlert,
                 knowledgeSnippet: live.knowledgeSnippet || "",
                 isRepeatCaller: !!live.isRepeatCaller,

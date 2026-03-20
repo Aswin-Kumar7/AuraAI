@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useCallStore } from "@/store/callStore";
 import { cn } from "@/lib/utils";
 import { Headphones, UserRound, ShieldCheck, Activity, MessageSquare } from "lucide-react";
@@ -36,13 +36,34 @@ const speakerConfig: Record<
 export function LiveTranscript() {
   const transcript = useCallStore((s) => s.transcript);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [channel, setChannel] = useState<"all" | "agent" | "customer">("all");
+
+  const channelCounts = useMemo(() => {
+    let agent = 0;
+    let customer = 0;
+    for (const line of transcript) {
+      if (line.speaker === "agent") {
+        agent += 1;
+      } else if (line.speaker === "customer") {
+        customer += 1;
+      }
+    }
+    return { agent, customer };
+  }, [transcript]);
+
+  const visibleTranscript = useMemo(() => {
+    if (channel === "all") {
+      return transcript;
+    }
+    return transcript.filter((line) => line.speaker === channel);
+  }, [transcript, channel]);
 
   useEffect(() => {
     const el = containerRef.current;
     if (el) {
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     }
-  }, [transcript.length]);
+  }, [visibleTranscript.length]);
 
   return (
     <div className="flex flex-col h-full rounded-2xl border border-white/[0.06] bg-[#020617]/95 backdrop-blur-3xl overflow-hidden shadow-2xl relative">
@@ -62,6 +83,44 @@ export function LiveTranscript() {
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Live Dual-Channel Link</p>
           </div>
         </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setChannel("all")}
+            className={cn(
+              "rounded-lg border px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition",
+              channel === "all"
+                ? "border-indigo-400/70 bg-indigo-500/20 text-indigo-200"
+                : "border-white/10 bg-white/5 text-slate-400 hover:border-white/20"
+            )}
+          >
+            All ({transcript.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setChannel("customer")}
+            className={cn(
+              "rounded-lg border px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition",
+              channel === "customer"
+                ? "border-emerald-400/70 bg-emerald-500/20 text-emerald-200"
+                : "border-white/10 bg-white/5 text-slate-400 hover:border-white/20"
+            )}
+          >
+            Customer ({channelCounts.customer})
+          </button>
+          <button
+            type="button"
+            onClick={() => setChannel("agent")}
+            className={cn(
+              "rounded-lg border px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition",
+              channel === "agent"
+                ? "border-indigo-400/70 bg-indigo-500/20 text-indigo-200"
+                : "border-white/10 bg-white/5 text-slate-400 hover:border-white/20"
+            )}
+          >
+            Agent ({channelCounts.agent})
+          </button>
+        </div>
       </div>
 
       {/* Transcript Area */}
@@ -70,7 +129,7 @@ export function LiveTranscript() {
         className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-white/10"
       >
         <AnimatePresence initial={false}>
-          {transcript.map((line, idx) => {
+          {visibleTranscript.map((line, idx) => {
             const config = speakerConfig[line.speaker] || speakerConfig.customer;
             const isAgent = config.align === "right";
 
@@ -110,7 +169,7 @@ export function LiveTranscript() {
           })}
         </AnimatePresence>
         
-        {transcript.length === 0 && (
+        {visibleTranscript.length === 0 && (
           <div className="h-full flex flex-col items-center justify-center opacity-30 space-y-4">
             <div className="p-4 rounded-full bg-slate-500/10 border border-slate-500/20">
                <Headphones className="h-8 w-8 text-slate-500" />

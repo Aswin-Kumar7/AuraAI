@@ -4,6 +4,7 @@ import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { z } from "zod";
 import { Pinecone } from "@pinecone-database/pinecone";
 import crypto from "crypto";
+import { embedKnowledgeTexts } from "@/lib/rag";
 
 const schema = z.object({
   kbText: z.string().max(50000),
@@ -56,6 +57,8 @@ export async function POST(request: Request) {
     const index = pinecone.index(process.env.PINECONE_INDEX);
 
     const chunks = chunkText(kbText);
+    const embeddings = await embedKnowledgeTexts(chunks, "passage");
+    const fallbackDim = embeddings[0]?.length || 0;
 
     // Simple deterministic IDs per chunk
     const vectors = chunks.map((chunk, i) => ({
@@ -64,7 +67,7 @@ export async function POST(request: Request) {
         .update(`${companyId}:${i}:${chunk.slice(0, 32)}`)
         .digest("hex")
         .slice(0, 32),
-      values: new Array(768).fill(0), // placeholder; real embedding pipeline should replace this
+      values: embeddings[i] || new Array(fallbackDim).fill(0),
       metadata: {
         companyId,
         text: chunk,

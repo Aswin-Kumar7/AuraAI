@@ -4,10 +4,24 @@ import { adminAuth, adminDb, FieldValue } from "@/lib/firebase-admin";
 import { z } from "zod";
 import { callGroq } from "@/lib/groq";
 import { buildAnalysisSystemPrompt, buildAnalysisUserPrompt } from "@/lib/prompts";
-import { retrieveRelevantKB } from "@/lib/rag";
+import { retrieveRelevantKBWithScores } from "@/lib/rag";
 
 type TranscriptLine = { speaker: string; text: string; timestamp?: string | Date };
 type CallerHistoryEntry = { callId: string; date: string; issue: string; resolved: boolean; summary: string; };
+
+type IntentTrendPoint = {
+  intent: string;
+  confidence: number;
+  policyMatchScore: number;
+  timestamp: string;
+};
+
+function clamp01(value: unknown, fallback = 0): number {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return fallback;
+  }
+  return Math.min(1, Math.max(0, value));
+}
 
 
 const bodySchema = z.object({
@@ -84,11 +98,18 @@ export async function POST(request: Request) {
     const { callId, newLine, companyConfig: demoConfig, callerMemory: demoMemory } = parsed.data;
     const isDemo = callId.startsWith("demo-call-");
 
+    const normalizedNewLine: TranscriptLine = {
+      speaker: String(newLine.speaker || "customer").toLowerCase(),
+      text: String(newLine.text || "").trim(),
+      timestamp: newLine.timestamp,
+    };
+
     type LiveCallStateDoc = {
       transcript?: TranscriptLine[];
       companyId?: string;
       callerPhone?: string;
       lastAnalyzedAt?: number;
+      intentTrend?: IntentTrendPoint[];
     };
 
     let transcript: TranscriptLine[] = [];
@@ -130,7 +151,16 @@ export async function POST(request: Request) {
       lastAnalyzedAt = liveData.lastAnalyzedAt || 0;
     }
 
-    const updatedTranscript = [...transcript, newLine];
+    const lastLine = transcript[transcript.length - 1];
+    const isDuplicateLastLine =
+      !!lastLine &&
+      String(lastLine.speaker || "").toLowerCase() === normalizedNewLine.speaker &&
+      String(lastLine.text || "").trim() === normalizedNewLine.text &&
+      String(lastLine.timestamp || "") === String(normalizedNewLine.timestamp || "");
+
+    const updatedTranscript = isDuplicateLastLine
+      ? transcript
+      : [...transcript, normalizedNewLine];
 
     // 3. Rate limit (skip for demo)
     const now = Date.now();
@@ -180,9 +210,12 @@ export async function POST(request: Request) {
     const lastCustomerMessage = lastCustomer?.text || "";
 
     // 5. RAG
-    const kbChunks = lastCustomerMessage
-      ? await retrieveRelevantKB(companyId, lastCustomerMessage)
+    const kbMatches = lastCustomerMessage
+      ? await retrieveRelevantKBWithScores(companyId, lastCustomerMessage)
       : [];
+    const kbChunks = kbMatches.map((m) => m.text);
+    const knowledgeCandidates = kbMatches.slice(0, 3).map((m) => m.text);
+    const heuristicPolicyMatchScore = kbMatches.length > 0 ? clamp01(kbMatches[0].score, 0.5) : 0;
 
     // Caller history from Firestore
     let callerHistory: CallerHistoryEntry[] | null = null;
@@ -225,13 +258,23 @@ export async function POST(request: Request) {
     // 8. Parse JSON safely
     type AiResponse = {
       intent?: string;
+      intentConfidence?: number;
+      inferredNeed?: string;
+      customerDisposition?: "satisfied" | "neutral" | "angry" | "needs_change";
       isPreviousIssue?: boolean;
       sentiment?: number;
       sentimentLabel?: string;
       escalationRisk?: number;
       escalationReason?: string;
       interventionSuggestion?: string;
-      suggestions?: Array<{ text?: string; tone?: string; rank?: number }>;
+      policySuggestion?: string;
+      policyMatchScore?: number;
+      suggestions?: Array<{
+        text?: string;
+        tone?: string;
+        rank?: number;
+        resolutionLikelihood?: number;
+      }>;
       complianceAlert?: boolean;
       complianceReason?: string;
       complianceSeverity?: string;
@@ -251,24 +294,56 @@ export async function POST(request: Request) {
     }
 
     const intent: string = parsedAi.intent || "general_inquiry";
+    const intentConfidence: number =
+      typeof parsedAi.intentConfidence === "number"
+        ? Math.min(Math.max(parsedAi.intentConfidence, 0), 1)
+        : 0.5;
+    const inferredNeed: string = parsedAi.inferredNeed || "";
     const isPreviousIssue: boolean = !!parsedAi.isPreviousIssue;
     const sentiment: number =
       typeof parsedAi.sentiment === "number" ? parsedAi.sentiment : 50;
     const sentimentLabel: string =
       parsedAi.sentimentLabel || "calm";
+    const derivedDisposition: "satisfied" | "neutral" | "angry" | "needs_change" =
+      intent === "return_request" || intent === "other"
+        ? "needs_change"
+        : sentiment < 35 || ["frustrated", "escalating"].includes(sentimentLabel)
+          ? "angry"
+          : sentiment >= 70 || sentimentLabel === "resolved"
+            ? "satisfied"
+            : "neutral";
+    const customerDisposition =
+      parsedAi.customerDisposition &&
+      ["satisfied", "neutral", "angry", "needs_change"].includes(parsedAi.customerDisposition)
+        ? parsedAi.customerDisposition
+        : derivedDisposition;
     const escalationRisk: number =
       typeof parsedAi.escalationRisk === "number" ? Math.min(Math.max(parsedAi.escalationRisk, 0), 1) : 0;
     const escalationReason: string = parsedAi.escalationReason || "";
     const interventionSuggestion: string = parsedAi.interventionSuggestion || "";
 
     const suggestions = Array.isArray(parsedAi.suggestions)
-      ? parsedAi.suggestions.slice(0, 3)
+      ? parsedAi.suggestions.slice(0, 3).map((s, idx) => ({
+          text: String(s.text || "").trim(),
+          tone: String(s.tone || "neutral").trim(),
+          rank: typeof s.rank === "number" ? s.rank : idx + 1,
+          resolutionLikelihood: clamp01(
+            s.resolutionLikelihood,
+            Math.max(0.35, 0.85 - idx * 0.2)
+          ),
+        }))
+          .filter((s) => s.text.length > 0)
       : [];
 
     const complianceAlert: boolean = !!parsedAi.complianceAlert;
     const complianceReason: string = parsedAi.complianceReason || "";
     const complianceSeverity: string = parsedAi.complianceSeverity || "warning";
     const knowledgeSnippet: string = parsedAi.knowledgeSnippet || "";
+    const policySuggestion: string = parsedAi.policySuggestion || knowledgeSnippet;
+    const policyMatchScore: number = clamp01(
+      parsedAi.policyMatchScore,
+      heuristicPolicyMatchScore
+    );
 
     const detectedLanguage: string = parsedAi.detectedLanguage || language;
     const liveSummary: string = parsedAi.liveSummary || "";
@@ -276,6 +351,19 @@ export async function POST(request: Request) {
     // Determine mode: alert if compliance issue, escalation risk > 0.6, or low sentiment
     const mode =
       complianceAlert || escalationRisk > 0.6 || sentiment < alertThreshold ? "alert" : "whisper";
+
+    const trendPoint: IntentTrendPoint = {
+      intent,
+      confidence: intentConfidence,
+      policyMatchScore,
+      timestamp: new Date().toISOString(),
+    };
+
+    const existingIntentTrend = Array.isArray(liveData?.intentTrend)
+      ? liveData.intentTrend
+      : [];
+    const previousIntentTrend = existingIntentTrend.slice(-29);
+    const intentTrend = [...previousIntentTrend, trendPoint];
 
     // 9. Update Firestore liveCallState (skip for demo)
     if (!isDemo) {
@@ -286,6 +374,10 @@ export async function POST(request: Request) {
       {
         transcript: updatedTranscript,
         intent,
+        intentConfidence,
+        inferredNeed,
+        customerDisposition,
+        intentTrend,
         isPreviousIssue,
         sentimentScore: sentiment,
         sentimentLabel,
@@ -302,6 +394,9 @@ export async function POST(request: Request) {
         complianceReason,
         complianceSeverity,
         knowledgeSnippet,
+        knowledgeCandidates,
+        policySuggestion,
+        policyMatchScore,
         detectedLanguage,
         liveSummary,
         lastAnalyzedAt: now,
@@ -335,6 +430,9 @@ export async function POST(request: Request) {
     return NextResponse.json({
       callId,
       intent,
+      intentConfidence,
+      inferredNeed,
+      customerDisposition,
       isPreviousIssue,
       sentiment,
       sentimentLabel,
@@ -346,6 +444,9 @@ export async function POST(request: Request) {
       complianceReason,
       complianceSeverity,
       knowledgeSnippet,
+      knowledgeCandidates,
+      policySuggestion,
+      policyMatchScore,
       detectedLanguage,
       mode,
       skipped: false,

@@ -40,10 +40,13 @@ const firebaseConfig = {
 
 const app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const INTERNAL_API_SECRET =
+  process.env.INTERNAL_API_SECRET || "aura_internal_prod_secret_123";
 
 interface HybridTranscriptionRequest {
   callId: string;
   source: "browser" | "backend"; // Where the request originated
+  speaker?: "agent" | "customer" | "supervisor";
   transcript?: string; // From browser Web Speech
   confidence?: number; // From browser Web Speech
   audioData?: string; // Base64 audio for backend processing
@@ -71,8 +74,14 @@ async function routeHybridTranscription(
   try {
     // Browser source (already has transcript, just validate and store)
     if (req.source === "browser" && req.transcript) {
+      const hasConfidence =
+        typeof req.confidence === "number" &&
+        Number.isFinite(req.confidence) &&
+        req.confidence > 0;
+
       // Filter low confidence
-      if (req.confidence && req.confidence < 0.5) {
+      if (hasConfidence && (req.confidence as number) < 0.5) {
+        const confidencePct = (Number(req.confidence ?? 0) * 100).toFixed(1);
         return {
           success: false,
           transcript: "",
@@ -80,7 +89,21 @@ async function routeHybridTranscription(
           source: "browser-rejected",
           latency: Date.now() - startTime,
           timestamp: new Date().toISOString(),
-          message: `Low confidence: ${(req.confidence * 100).toFixed(1)}%`,
+          message: `Low confidence: ${confidencePct}%`,
+        };
+      }
+
+      // Some browsers report 0/undefined confidence for valid transcripts.
+      // In this case, accept transcript and mark source for traceability.
+      if (!hasConfidence) {
+        return {
+          success: true,
+          transcript: req.transcript,
+          confidence: 0.7,
+          source: "browser-no-confidence",
+          latency: Date.now() - startTime,
+          timestamp: new Date().toISOString(),
+          message: "Confidence unavailable from browser STT; accepted transcript",
         };
       }
 
@@ -156,12 +179,17 @@ async function routeHybridTranscription(
 // Store transcription in Firestore
 async function storeTranscription(
   callId: string,
-  response: HybridTranscriptionResponse
+  response: HybridTranscriptionResponse,
+  speakerHint?: "agent" | "customer" | "supervisor"
 ) {
   try {
     if (!response.success || !response.transcript) {
       return;
     }
+
+    const speaker =
+      speakerHint ||
+      (response.source.includes("browser") ? "agent" : "customer");
 
     const liveRef = doc(db, "liveCallState", callId);
     await setDoc(
@@ -171,7 +199,7 @@ async function storeTranscription(
         viewed: false,
         lastTranscriptAt: response.timestamp,
         transcript: arrayUnion({
-          speaker: response.source.includes("browser") ? "agent" : "customer",
+          speaker,
           text: response.transcript,
           timestamp: response.timestamp,
           confidence: response.confidence,
@@ -188,6 +216,60 @@ async function storeTranscription(
     );
   } catch (error) {
     console.error("[HYBRID] Firestore storage error:", error);
+  }
+}
+
+async function triggerLiveAnalysis(
+  request: NextRequest,
+  callId: string,
+  transcript: string,
+  speaker: "agent" | "customer" | "supervisor",
+  timestamp: string
+) {
+  if (speaker !== "customer") {
+    return;
+  }
+
+  const trimmed = transcript.trim();
+  if (trimmed.length < 3) {
+    return;
+  }
+
+  const analyzeUrl = new URL("/api/ai/analyze", request.url).toString();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const res = await fetch(analyzeUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-secret": INTERNAL_API_SECRET,
+      },
+      body: JSON.stringify({
+        callId,
+        newLine: {
+          speaker: "customer",
+          text: trimmed,
+          timestamp,
+        },
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const details = await res.text();
+      console.warn(
+        `[HYBRID] Analysis trigger failed (${res.status}): ${details.slice(0, 180)}`
+      );
+      return;
+    }
+
+    console.log(`[HYBRID] Analysis refreshed for call ${callId}`);
+  } catch (error) {
+    console.warn("[HYBRID] Analysis trigger error:", error);
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -213,7 +295,18 @@ export async function POST(request: NextRequest) {
 
     // Store successful transcriptions
     if (response.success) {
-      await storeTranscription(callId, response);
+      const speaker =
+        body.speaker ||
+        (response.source.includes("browser") ? "agent" : "customer");
+
+      await storeTranscription(callId, response, speaker);
+      await triggerLiveAnalysis(
+        request,
+        callId,
+        response.transcript,
+        speaker,
+        response.timestamp
+      );
     }
 
     return NextResponse.json(response);

@@ -8,18 +8,37 @@ export interface TranscriptLine {
   timestamp?: string;
 }
 
-export type Suggestion = { text: string; tone?: string; rank?: number };
+export type Suggestion = {
+  text: string;
+  tone?: string;
+  rank?: number;
+  resolutionLikelihood?: number;
+};
+
+export interface IntentTrendPoint {
+  intent: string;
+  confidence: number;
+  policyMatchScore: number;
+  timestamp: string;
+}
 
 export interface AnalysisState {
   callId: string | null;
   transcript: TranscriptLine[];
   intent: string | null;
+  intentConfidence: number | null;
+  inferredNeed: string;
+  customerDisposition: string | null;
   isPreviousIssue: boolean;
   sentimentScore: number | null;
   sentimentLabel: string | null;
   escalationRisk: number;
   escalationReason: string;
   interventionSuggestion: string;
+  policySuggestion: string;
+  policyMatchScore: number | null;
+  intentTrend: IntentTrendPoint[];
+  knowledgeCandidates: string[];
   suggestions: Suggestion[];
   complianceAlert: boolean;
   complianceReason: string;
@@ -59,12 +78,19 @@ const initialState: AnalysisState = {
   callId: null,
   transcript: [],
   intent: null,
+  intentConfidence: null,
+  inferredNeed: "",
+  customerDisposition: null,
   isPreviousIssue: false,
   sentimentScore: null,
   sentimentLabel: null,
   escalationRisk: 0,
   escalationReason: "",
   interventionSuggestion: "",
+  policySuggestion: "",
+  policyMatchScore: null,
+  intentTrend: [],
+  knowledgeCandidates: [],
   suggestions: [],
   complianceAlert: false,
   complianceReason: "",

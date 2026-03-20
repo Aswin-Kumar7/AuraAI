@@ -75,6 +75,8 @@ export async function POST(request: NextRequest) {
         agentId: agentId,
         companyId,
         status: "active",
+        twilioInboundSpeaker: "agent",
+        twilioOutboundSpeaker: "customer",
         transcript: [],
         currentSuggestions: [],
         sentimentScore: null,

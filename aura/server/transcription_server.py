@@ -32,10 +32,9 @@ MODEL_TYPE = os.getenv("TRANSCRIPTION_MODEL", "GOOGLE").upper()
 GROQ_KEY = os.getenv("GROQ_API_KEY")
 DEEPGRAM_KEY = os.getenv("DEEPGRAM_API_KEY")
 GOOGLE_KEY = os.getenv("GOOGLE_STT_API_KEY")
-MAX_RETRIES = 3
-RETRY_DELAY = 0.5
 GROQ_WHISPER_MODEL = os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
 GROQ_WHISPER_FALLBACK_MODEL = os.getenv("GROQ_WHISPER_FALLBACK_MODEL", "whisper-large-v3")
+GROQ_WHISPER_PROMPT = os.getenv("GROQ_WHISPER_PROMPT", "").strip()
 
 
 def _env_float(name, default, min_value, max_value):
@@ -47,17 +46,68 @@ def _env_float(name, default, min_value, max_value):
         return default
 
 
+def _env_int(name, default, min_value, max_value):
+    """Parse and clamp integer env config safely."""
+    try:
+        value = int(float(os.getenv(name, str(default))))
+        return max(min_value, min(max_value, value))
+    except Exception:
+        return default
+
+
+# Keep live streaming responsive by default when upstream APIs are unstable.
+MAX_RETRIES = _env_int("STT_MAX_RETRIES", 0, 0, 5)
+RETRY_DELAY = _env_float("STT_RETRY_DELAY_SECONDS", 0.25, 0.0, 2.0)
+GROQ_HTTP_TIMEOUT_SECONDS = _env_float("GROQ_HTTP_TIMEOUT_SECONDS", 6.0, 2.0, 20.0)
+GOOGLE_HTTP_TIMEOUT_SECONDS = _env_float("GOOGLE_HTTP_TIMEOUT_SECONDS", 8.0, 2.0, 20.0)
+INTEL_HTTP_TIMEOUT_SECONDS = _env_float("INTEL_HTTP_TIMEOUT_SECONDS", 6.0, 2.0, 20.0)
+FIRESTORE_RETRY_ATTEMPTS = _env_int("FIRESTORE_RETRY_ATTEMPTS", 2, 0, 5)
+FIRESTORE_RETRY_DELAY_SECONDS = _env_float("FIRESTORE_RETRY_DELAY_SECONDS", 0.4, 0.0, 3.0)
+ENABLE_LOCAL_INTELLIGENCE_FALLBACK = (
+    os.getenv("ENABLE_LOCAL_INTELLIGENCE_FALLBACK", "false").strip().lower()
+    in {"1", "true", "yes", "on"}
+)
+
+
 # Twilio media stream is 8kHz mulaw (roughly 8000 bytes/sec in payload).
 STREAM_BYTES_PER_SECOND = 8000
-STT_CHUNK_SECONDS_DEFAULT = _env_float("STT_CHUNK_SECONDS", 1.8, 0.5, 4.0)
+STT_CHUNK_SECONDS_DEFAULT = _env_float("STT_CHUNK_SECONDS", 1.8, 0.5, 8.0)
 STT_CHUNK_SECONDS_GOOGLE = _env_float(
-    "STT_CHUNK_SECONDS_GOOGLE", STT_CHUNK_SECONDS_DEFAULT, 0.5, 4.0
+    "STT_CHUNK_SECONDS_GOOGLE", STT_CHUNK_SECONDS_DEFAULT, 0.5, 8.0
 )
 STT_CHUNK_SECONDS_GROQ = _env_float(
-    "STT_CHUNK_SECONDS_GROQ", STT_CHUNK_SECONDS_DEFAULT, 0.5, 4.0
+    "STT_CHUNK_SECONDS_GROQ", STT_CHUNK_SECONDS_DEFAULT, 0.5, 8.0
+)
+STT_CHUNK_SECONDS_GROQ_AGENT = _env_float(
+    "STT_CHUNK_SECONDS_GROQ_AGENT", min(2.0, STT_CHUNK_SECONDS_GROQ), 0.5, 8.0
 )
 CHUNK_LIMIT_GOOGLE = int(STREAM_BYTES_PER_SECOND * STT_CHUNK_SECONDS_GOOGLE)
 CHUNK_LIMIT_GROQ = int(STREAM_BYTES_PER_SECOND * STT_CHUNK_SECONDS_GROQ)
+CHUNK_LIMIT_GROQ_AGENT = int(STREAM_BYTES_PER_SECOND * STT_CHUNK_SECONDS_GROQ_AGENT)
+
+# Separate silence thresholds help with low-volume agent replies on outbound track.
+RMS_SILENCE_THRESHOLD_GROQ_CUSTOMER = _env_int(
+    "RMS_SILENCE_THRESHOLD_GROQ_CUSTOMER", 500, 50, 4000
+)
+RMS_SILENCE_THRESHOLD_GROQ_AGENT = _env_int(
+    "RMS_SILENCE_THRESHOLD_GROQ_AGENT", 220, 50, 4000
+)
+
+
+def _normalize_speaker(value, fallback):
+    """Normalize speaker labels to supported values."""
+    v = str(value or fallback).strip().lower()
+    if v in {"agent", "customer"}:
+        return v
+    return fallback
+
+# Track-to-speaker mapping can vary by Twilio call topology; make it configurable.
+TWILIO_INBOUND_SPEAKER = _normalize_speaker(
+    os.getenv("TWILIO_INBOUND_SPEAKER", "customer"), "customer"
+)
+TWILIO_OUTBOUND_SPEAKER = _normalize_speaker(
+    os.getenv("TWILIO_OUTBOUND_SPEAKER", "agent"), "agent"
+)
 
 # ── Hybrid Endpoint ──
 HYBRID_ENDPOINT = os.getenv("HYBRID_ENDPOINT_URL", "http://localhost:3000/api/transcription/hybrid")
@@ -115,14 +165,19 @@ def clean_transcript(text):
     # Clean up whitespace
     cleaned = re.sub(r'\s+', ' ', text).strip()
     
+    # Skip recurring non-informative hallucination sometimes returned by STT.
+    cleaned_lower = cleaned.lower()
+    if cleaned_lower in {"support call", "a support call", "this is a support call"}:
+        return ""
+
     # Check minimum length
     if len(cleaned) < 3:
         return ""
     
     # Check for mostly blacklisted words
-    words = cleaned.lower().split()
+    words = cleaned_lower.split()
     if len(words) < 4:
-        if any(b in cleaned.lower() for b in blacklist):
+        if any(b in cleaned_lower for b in blacklist):
             return ""
     
     # Convert to proper capitalization
@@ -131,7 +186,26 @@ def clean_transcript(text):
     return cleaned
 
 
-def send_to_hybrid_endpoint(call_sid, transcript, confidence=0.8, source="backend"):
+def _firestore_with_retry(op_name, fn):
+    """Retry transient Firestore/network failures with short backoff."""
+    attempts = max(0, FIRESTORE_RETRY_ATTEMPTS) + 1
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except Exception as e:
+            if attempt >= attempts:
+                logger.error(f"❌ [FIRESTORE] {op_name} failed after {attempt} attempts: {e}")
+                raise
+
+            delay = FIRESTORE_RETRY_DELAY_SECONDS * attempt
+            logger.warning(
+                f"⚠️  [FIRESTORE] {op_name} attempt {attempt}/{attempts} failed: {e}. "
+                f"Retrying in {delay:.1f}s"
+            )
+            time.sleep(delay)
+
+
+def send_to_hybrid_endpoint(call_sid, transcript, confidence=0.8, source="backend", speaker="customer"):
     """Send transcription to hybrid endpoint for intelligent routing and storage.
 
     Returns True on successful routing, False when fallback storage should be used.
@@ -140,6 +214,7 @@ def send_to_hybrid_endpoint(call_sid, transcript, confidence=0.8, source="backen
         payload = {
             "callId": call_sid,
             "source": source,
+            "speaker": speaker,
             "transcript": transcript,
             "confidence": confidence,
             "language": os.getenv("STT_LANGUAGE_CODE", "en-IN"),
@@ -169,14 +244,42 @@ def send_to_hybrid_endpoint(call_sid, transcript, confidence=0.8, source="backen
 
 async def get_enterprise_config(call_sid):
     try:
-        call_ref = db.collection("liveCallState").document(call_sid).get()
-        if not call_ref.exists: return {}
+        call_ref = _firestore_with_retry(
+            "read liveCallState",
+            lambda: db.collection("liveCallState").document(call_sid).get(),
+        )
+        if not call_ref.exists:
+            return {}
+
         data = call_ref.to_dict() or {}
         agent_id = data.get("agentId")
-        u_ref = db.collection("users").document(agent_id).get()
-        cid = (u_ref.to_dict() or {}).get("companyId")
-        return db.collection("companyConfig").document(cid).get().to_dict() or {}
-    except: return {}
+        company_cfg = {}
+        if agent_id:
+            u_ref = _firestore_with_retry(
+                "read user",
+                lambda: db.collection("users").document(agent_id).get(),
+            )
+            cid = (u_ref.to_dict() or {}).get("companyId")
+            if cid:
+                company_doc = _firestore_with_retry(
+                    "read companyConfig",
+                    lambda: db.collection("companyConfig").document(cid).get(),
+                )
+                company_cfg = company_doc.to_dict() or {}
+
+        # Per-call mapping overrides help when Twilio track direction differs by route.
+        inbound_override = _normalize_speaker(
+            data.get("twilioInboundSpeaker"), TWILIO_INBOUND_SPEAKER
+        )
+        outbound_override = _normalize_speaker(
+            data.get("twilioOutboundSpeaker"), TWILIO_OUTBOUND_SPEAKER
+        )
+        company_cfg["twilioInboundSpeaker"] = inbound_override
+        company_cfg["twilioOutboundSpeaker"] = outbound_override
+        return company_cfg
+    except Exception as e:
+        logger.warning(f"⚠️  [CONFIG] Failed to load enterprise config for {call_sid}: {e}")
+        return {}
 
 # ──────── ANALYSIS HUB (2.11 PINECONE-READY) ────────
 
@@ -227,7 +330,7 @@ Analyze the conversation and respond with ONLY a valid JSON object:
                         "response_format": {"type": "json_object"},
                         "max_tokens": 500
                     },
-                    timeout=8
+                    timeout=INTEL_HTTP_TIMEOUT_SECONDS
                 )
                 
                 if res.status_code != 200:
@@ -239,7 +342,10 @@ Analyze the conversation and respond with ONLY a valid JSON object:
                 intel = json.loads(content)
                 
                 # Update Firestore with analysis
-                db.collection("liveCallState").document(call_sid).set(intel, merge=True)
+                _firestore_with_retry(
+                    "write intelligence",
+                    lambda: db.collection("liveCallState").document(call_sid).set(intel, merge=True),
+                )
                 logger.debug(f"✅ [INTEL] Updated: sentiment={intel.get('sentimentLabel')}")
                 
             except json.JSONDecodeError:
@@ -267,9 +373,27 @@ def compute_audio_level(raw_mulaw_bytes):
     except:
         return 0
 
+
+def map_track_to_speaker(
+    track_value,
+    inbound_speaker=TWILIO_INBOUND_SPEAKER,
+    outbound_speaker=TWILIO_OUTBOUND_SPEAKER,
+):
+    """Map Twilio media track to a normalized speaker value."""
+    inbound = _normalize_speaker(inbound_speaker, TWILIO_INBOUND_SPEAKER)
+    outbound = _normalize_speaker(outbound_speaker, TWILIO_OUTBOUND_SPEAKER)
+    t = str(track_value or "inbound_track").lower()
+    if t in {"outbound", "outbound_track", "out"}:
+        return outbound
+    if t in {"inbound", "inbound_track", "in"}:
+        return inbound
+
+    logger.debug(f"⚠️  [TRACK] Unknown track '{t}', defaulting to inbound mapping")
+    return inbound
+
 # ──────── TRANSCRIPTION HUB ────────
 
-def groq_inference(audio_bytes, prompt="A support call.", retry_count=0):
+def groq_inference(audio_bytes, prompt=None, retry_count=0):
     """Groq Whisper inference with retry logic and quality-based fallback.
 
     Primary model is tuned for low latency/low parameter count. If output quality
@@ -294,20 +418,22 @@ def groq_inference(audio_bytes, prompt="A support call.", retry_count=0):
 
             # Whisper language expects ISO-639-1 (en, hi, ta...)
             lang_hint = os.getenv("STT_LANGUAGE_CODE", "en-IN").split("-")[0].lower()
+            selected_prompt = GROQ_WHISPER_PROMPT if prompt is None else prompt
             data = {
                 "model": model_name,
-                "prompt": prompt,
                 "temperature": 0.0,
                 "language": lang_hint,
                 "response_format": "verbose_json",
             }
+            if selected_prompt:
+                data["prompt"] = selected_prompt
 
             return requests.post(
                 "https://api.groq.com/openai/v1/audio/transcriptions",
                 headers={"Authorization": f"Bearer {GROQ_KEY}"},
                 files=files,
                 data=data,
-                timeout=8,
+                timeout=GROQ_HTTP_TIMEOUT_SECONDS,
             )
 
     try:
@@ -410,7 +536,7 @@ def google_inference(raw_mulaw_bytes, retry_count=0):
         else:
             logger.debug(f"🎤 [GOOGLE] Using default model for {language_code} (phone_call not supported)")
         
-        res = requests.post(url, json=payload, timeout=8)
+        res = requests.post(url, json=payload, timeout=GOOGLE_HTTP_TIMEOUT_SECONDS)
         res_json = res.json()
         
         if res.status_code != 200:
@@ -456,8 +582,14 @@ def google_inference(raw_mulaw_bytes, retry_count=0):
 async def websocket_ep(websocket: WebSocket):
     await websocket.accept()
     logger.info(f"[WS] Streaming Link: ACTIVE (Engine: {MODEL_TYPE})")
-    call_sid, cfg, buf = None, {}, bytearray()
+    call_sid, cfg = None, {}
+    call_track_map = {
+        "inbound": TWILIO_INBOUND_SPEAKER,
+        "outbound": TWILIO_OUTBOUND_SPEAKER,
+    }
+    buffers = {"customer": bytearray(), "agent": bytearray()}
     packet_count = 0
+    speaker_packet_count = {"customer": 0, "agent": 0}
     last_transcript_time = time.time()
     
     try:
@@ -480,8 +612,22 @@ async def websocket_ep(websocket: WebSocket):
                         continue
                     
                     cfg = await get_enterprise_config(call_sid)
+                    call_track_map = {
+                        "inbound": _normalize_speaker(
+                            cfg.get("twilioInboundSpeaker"), TWILIO_INBOUND_SPEAKER
+                        ),
+                        "outbound": _normalize_speaker(
+                            cfg.get("twilioOutboundSpeaker"), TWILIO_OUTBOUND_SPEAKER
+                        ),
+                    }
+                    buffers = {"customer": bytearray(), "agent": bytearray()}
                     logger.info(f"[AI] Ready for Intelligence Session ({MODEL_TYPE}): {call_sid}")
+                    logger.info(
+                        f"🔀 [TRACK] Call map: inbound->{call_track_map['inbound']}, "
+                        f"outbound->{call_track_map['outbound']}"
+                    )
                     packet_count = 0
+                    speaker_packet_count = {"customer": 0, "agent": 0}
                     last_transcript_time = time.time()
 
                 elif msg["event"] == "media":
@@ -494,21 +640,37 @@ async def websocket_ep(websocket: WebSocket):
                     except Exception as e:
                         logger.error(f"❌ [WS-DECODE-ERR]: {e}")
                         continue
+
+                    track = msg.get("media", {}).get("track", "inbound_track")
+                    speaker = map_track_to_speaker(
+                        track,
+                        call_track_map["inbound"],
+                        call_track_map["outbound"],
+                    )
                     
-                    buf.extend(payload)
+                    buffers[speaker].extend(payload)
                     packet_count += 1
+                    speaker_packet_count[speaker] += 1
                     
                     # Log packet flow
                     if packet_count % 20 == 0:
                         elapsed = time.time() - last_transcript_time
-                        logger.info(f"📊 [DEBUG] Packets: {packet_count}, Buffer: {len(buf)} bytes, Elapsed: {elapsed:.1f}s")
+                        logger.info(
+                            f"📊 [DEBUG] Packets: {packet_count}, "
+                            f"CustomerBuf: {len(buffers['customer'])} bytes, "
+                            f"AgentBuf: {len(buffers['agent'])} bytes, "
+                            f"Elapsed: {elapsed:.1f}s"
+                        )
 
                     # Adaptive chunk sizing based on engine
-                    CHUNK_LIMIT = CHUNK_LIMIT_GOOGLE if MODEL_TYPE == "GOOGLE" else CHUNK_LIMIT_GROQ
+                    if MODEL_TYPE == "GOOGLE":
+                        CHUNK_LIMIT = CHUNK_LIMIT_GOOGLE
+                    else:
+                        CHUNK_LIMIT = CHUNK_LIMIT_GROQ_AGENT if speaker == "agent" else CHUNK_LIMIT_GROQ
 
-                    if len(buf) >= CHUNK_LIMIT:
-                        raw_p = bytes(buf)
-                        buf = bytearray()
+                    if len(buffers[speaker]) >= CHUNK_LIMIT:
+                        raw_p = bytes(buffers[speaker])
+                        buffers[speaker] = bytearray()
                         
                         # Process transcription in thread pool to avoid blocking event loop
                         text = ""
@@ -524,13 +686,21 @@ async def websocket_ep(websocket: WebSocket):
                                     continue
                                 
                                 logger.debug(f"🎤 [GOOGLE] Processing {len(raw_p)} bytes (RMS: {rms_value})")
-                                text = await loop.run_in_executor(executor, google_inference, raw_p)
+                                text = await asyncio.wait_for(
+                                    loop.run_in_executor(executor, google_inference, raw_p),
+                                    timeout=GOOGLE_HTTP_TIMEOUT_SECONDS + 1.0,
+                                )
                             else:
                                 # Groq needs PCM conversion and normalization
                                 try:
                                     pcm = audioop.ulaw2lin(raw_p, 2)
                                     rms_value = audioop.rms(pcm, 2)
-                                    if rms_value < 500:
+                                    silence_threshold = (
+                                        RMS_SILENCE_THRESHOLD_GROQ_AGENT
+                                        if speaker == "agent"
+                                        else RMS_SILENCE_THRESHOLD_GROQ_CUSTOMER
+                                    )
+                                    if rms_value < silence_threshold:
                                         logger.debug(f"🔇 [GROQ] Silence detected (RMS: {rms_value})")
                                         continue
 
@@ -539,13 +709,20 @@ async def websocket_ep(websocket: WebSocket):
                                     mx = np.max(np.abs(a_flt))
                                     if 0.05 < mx < 1.0:
                                         a_flt *= (1.0 / mx)
-                                    text = await loop.run_in_executor(executor, groq_inference, a_flt)
+                                    text = await asyncio.wait_for(
+                                        loop.run_in_executor(executor, groq_inference, a_flt),
+                                        timeout=GROQ_HTTP_TIMEOUT_SECONDS + 1.0,
+                                    )
                                 except Exception as e:
                                     logger.error(f"❌ [GROQ-PROCESS-ERR]: {e}")
                                     continue
 
                             if text:
-                                logger.info(f"✅ [{MODEL_TYPE}] \"{text[:50]}...\"" if len(text) > 50 else f"✅ [{MODEL_TYPE}] \"{text}\"")
+                                logger.info(
+                                    f"✅ [{MODEL_TYPE}] [{speaker.upper()}] \"{text[:50]}...\""
+                                    if len(text) > 50
+                                    else f"✅ [{MODEL_TYPE}] [{speaker.upper()}] \"{text}\""
+                                )
                                 ts = datetime.now(timezone.utc).isoformat()
                                 
                                 try:
@@ -554,24 +731,28 @@ async def websocket_ep(websocket: WebSocket):
                                         call_sid, 
                                         text, 
                                         confidence=0.85,  # Backend STT typically high confidence
-                                        source="backend"
+                                        source="backend",
+                                        speaker=speaker,
                                     )
                                     
                                     if not hybrid_success:
                                         # Fallback: Direct Firestore write if hybrid endpoint unavailable
                                         logger.info("[HYBRID] Endpoint unavailable, using fallback storage")
                                         ref = db.collection("liveCallState").document(call_sid)
-                                        ref.set({
-                                            "viewed": False,
-                                            "lastTranscriptAt": ts,
-                                            "transcript": firestore.ArrayUnion([{
-                                                "speaker": "customer",
-                                                "text": text,
-                                                "timestamp": ts,
-                                                "engine": MODEL_TYPE,
-                                                "source": "backend-groq"
-                                            }])
-                                        }, merge=True)
+                                        _firestore_with_retry(
+                                            "write transcript fallback",
+                                            lambda: ref.set({
+                                                "viewed": False,
+                                                "lastTranscriptAt": ts,
+                                                "transcript": firestore.ArrayUnion([{
+                                                    "speaker": speaker,
+                                                    "text": text,
+                                                    "timestamp": ts,
+                                                    "engine": MODEL_TYPE,
+                                                    "source": f"backend-groq-{speaker}"
+                                                }])
+                                            }, merge=True),
+                                        )
                                     
                                     last_transcript_time = time.time()
                                     
@@ -580,14 +761,23 @@ async def websocket_ep(websocket: WebSocket):
                                         # Let hybrid endpoint handle intelligence pass
                                         # (it can trigger analysis through response)
                                         pass
-                                    else:
+                                    elif ENABLE_LOCAL_INTELLIGENCE_FALLBACK:
                                         # Fallback: Trigger intelligence locally
                                         ref = db.collection("liveCallState").document(call_sid)
-                                        history = ref.get().to_dict().get("transcript", []) if ref.get().exists else []
+                                        snap = _firestore_with_retry(
+                                            "read transcript fallback",
+                                            lambda: ref.get(),
+                                        )
+                                        history = snap.to_dict().get("transcript", []) if snap.exists else []
                                         if history:
                                             asyncio.create_task(run_intelligence_pass(call_sid, history, cfg))
                                 except Exception as e:
                                     logger.error(f"❌ [FIRESTORE-ERR]: {e}")
+                        except asyncio.TimeoutError:
+                            logger.warning(
+                                f"⏱️  [STT-TIMEOUT] {MODEL_TYPE} chunk timed out for {speaker}. "
+                                f"Dropping chunk to keep stream realtime"
+                            )
                         except Exception as e:
                             logger.error(f"❌ [EXECUTOR-ERR]: {e}", exc_info=True)
                 
@@ -629,12 +819,32 @@ if __name__ == "__main__":
     print(f"🌲 VECTOR STORE      : PINECONE (READY)")
     print(f"🔄 RETRY STRATEGY    : {MAX_RETRIES} attempts")
     print(
+        f"⏱️  HTTP TIMEOUTS     : groq={GROQ_HTTP_TIMEOUT_SECONDS:.1f}s, "
+        f"google={GOOGLE_HTTP_TIMEOUT_SECONDS:.1f}s, intel={INTEL_HTTP_TIMEOUT_SECONDS:.1f}s"
+    )
+    print(
         f"📊 CHUNK SIZE        : "
         f"{CHUNK_LIMIT_GOOGLE if MODEL_TYPE == 'GOOGLE' else CHUNK_LIMIT_GROQ} bytes"
     )
     print(
         f"⏱️  CHUNK WINDOW      : "
         f"{STT_CHUNK_SECONDS_GOOGLE if MODEL_TYPE == 'GOOGLE' else STT_CHUNK_SECONDS_GROQ:.1f}s"
+    )
+    if MODEL_TYPE == "GROQ":
+        print(
+            f"🧑‍💼 AGENT WINDOW      : {STT_CHUNK_SECONDS_GROQ_AGENT:.1f}s "
+            f"({CHUNK_LIMIT_GROQ_AGENT} bytes)"
+        )
+        print(
+            f"🎚️  RMS THRESHOLDS    : customer={RMS_SILENCE_THRESHOLD_GROQ_CUSTOMER}, "
+            f"agent={RMS_SILENCE_THRESHOLD_GROQ_AGENT}"
+        )
+        print(
+            f"🔀 TRACK MAP         : inbound->{TWILIO_INBOUND_SPEAKER}, "
+            f"outbound->{TWILIO_OUTBOUND_SPEAKER}"
+        )
+    print(
+        f"🧠 LOCAL INTEL FB    : {'ON' if ENABLE_LOCAL_INTELLIGENCE_FALLBACK else 'OFF'}"
     )
     
     if MODEL_TYPE == "GOOGLE" and not GOOGLE_KEY:

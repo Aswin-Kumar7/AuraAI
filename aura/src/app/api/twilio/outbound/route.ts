@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     const finalWsUrl = process.env.NGROK_URL ? wsUrl : `ws://127.0.0.1:3001/ws`;
 
     const connect = twiml.connect();
-    connect.stream({ url: finalWsUrl, track: "inbound_track" });
+    connect.stream({ url: finalWsUrl, track: "both_tracks" });
 
     // Initiate outbound call
     const call = await twilioClient.calls.create({
@@ -74,6 +74,8 @@ export async function POST(request: NextRequest) {
       callId: call.sid,
       agentId: uid,
       status: "active",
+      twilioInboundSpeaker: "customer",
+      twilioOutboundSpeaker: "agent",
       transcript: [],
       currentSuggestions: [],
       sentimentScore: null,

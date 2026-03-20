@@ -21,6 +21,7 @@ import {
   MicOff,
   Pause,
   Sparkles,
+  FlaskConical,
 } from "lucide-react";
 
 import { OutboundCallModal } from "@/components/agent/OutboundCallModal";
@@ -47,15 +48,96 @@ const CopilotPanel = dynamic(
     })),
   { ssr: false }
 );
+const IntentPanel = dynamic(
+  () =>
+    import("@/components/agent/IntentPanel").then((mod) => ({
+      default: mod.IntentPanel,
+    })),
+  { ssr: false }
+);
+const KnowledgeRetrievalPanel = dynamic(
+  () =>
+    import("@/components/agent/KnowledgeRetrievalPanel").then((mod) => ({
+      default: mod.KnowledgeRetrievalPanel,
+    })),
+  { ssr: false }
+);
+const ResponseSuggestionsPanel = dynamic(
+  () =>
+    import("@/components/agent/ResponseSuggestionsPanel").then((mod) => ({
+      default: mod.ResponseSuggestionsPanel,
+    })),
+  { ssr: false }
+);
+
+const MOCK_ANALYSIS = {
+  callId: "sim-demo-001",
+  intent: "billing_issue",
+  intentConfidence: 0.92,
+  inferredNeed: "Customer wants a refund for a duplicate charge on their last invoice.",
+  customerDisposition: "angry" as const,
+  isPreviousIssue: true,
+  sentimentScore: 22,
+  sentimentLabel: "frustrated",
+  escalationRisk: 0.75,
+  escalationReason: "Repeat caller, frustrated tone",
+  interventionSuggestion: "Offer immediate refund and apology",
+  policySuggestion: "As per refund policy §3.2, duplicate charges are eligible for same-day refund. Verify the charge ID and process via the billing portal.",
+  policyMatchScore: 0.88,
+  suggestions: [
+    { text: "I can see the duplicate charge on your account. I'm processing your refund now and you'll receive a confirmation email within the hour.", tone: "apologetic", rank: 1, resolutionLikelihood: 0.91 },
+    { text: "I sincerely apologize for this billing error. Our refund team will reverse the charge today. Can I confirm the best email for your receipt?", tone: "empathetic", rank: 2, resolutionLikelihood: 0.78 },
+    { text: "Thank you for bringing this to our attention. I have initiated the refund. Is there anything else I can help you with today?", tone: "professional", rank: 3, resolutionLikelihood: 0.61 },
+  ],
+  intentTrend: [
+    { intent: "general_inquiry", confidence: 0.45, policyMatchScore: 0.3, timestamp: new Date(Date.now() - 60000).toISOString() },
+    { intent: "billing_issue", confidence: 0.68, policyMatchScore: 0.55, timestamp: new Date(Date.now() - 40000).toISOString() },
+    { intent: "billing_issue", confidence: 0.85, policyMatchScore: 0.72, timestamp: new Date(Date.now() - 20000).toISOString() },
+    { intent: "billing_issue", confidence: 0.92, policyMatchScore: 0.88, timestamp: new Date().toISOString() },
+  ],
+  knowledgeCandidates: [
+    "Refund Policy §3.2: Duplicate charges are eligible for same-day reversal when reported within 30 days.",
+    "Billing Disputes: Agents must verify the charge ID in CRM before initiating any refund.",
+    "Customer Retention: Offer a goodwill credit for customers who have experienced billing errors.",
+  ],
+  complianceAlert: false,
+  complianceReason: "",
+  complianceSeverity: "info",
+  knowledgeSnippet: "Duplicate charges: same-day refund eligible. Verify via billing portal.",
+  isRepeatCaller: true,
+  activeMode: "alert" as const,
+  liveSummary: "[SIMULATION] Customer frustrated about duplicate charge, requesting refund.",
+  sentimentArc: [60, 50, 38, 28, 22],
+};
 
 export default function AgentDashboardPage() {
   const { incomingCall } = useLiveCall();
   const { toast } = useToast();
   const callId = useCallStore((s) => s.callId);
+  const intent = useCallStore((s) => s.intent);
+  const intentConfidence = useCallStore((s) => s.intentConfidence);
+  const customerDisposition = useCallStore((s) => s.customerDisposition);
   const sentimentLabel = useCallStore((s) => s.sentimentLabel);
   const sentimentScore = useCallStore((s) => s.sentimentScore);
   const activeMode = useCallStore((s) => s.activeMode);
   const transcript = useCallStore((s) => s.transcript);
+  const updateAnalysis = useCallStore((s) => s.updateAnalysis);
+  const updateTranscript = useCallStore((s) => s.updateTranscript);
+  const [isSimulating, setIsSimulating] = useState(false);
+
+  const simulateLiveData = useCallback(() => {
+    setIsSimulating(true);
+    updateTranscript([
+      { speaker: "customer", text: "Hello, I was charged twice on my last invoice and I need this resolved immediately.", timestamp: new Date(Date.now() - 90000).toISOString() },
+      { speaker: "agent", text: "I understand your frustration. Let me pull up your account right now.", timestamp: new Date(Date.now() - 75000).toISOString() },
+      { speaker: "customer", text: "This is the second time this has happened. I'm very upset about this.", timestamp: new Date(Date.now() - 60000).toISOString() },
+      { speaker: "agent", text: "I sincerely apologize. I can see the duplicate charge on your account.", timestamp: new Date(Date.now() - 45000).toISOString() },
+      { speaker: "customer", text: "I want a refund of the duplicate amount as per your refund policy.", timestamp: new Date(Date.now() - 30000).toISOString() },
+    ]);
+    updateAnalysis({ ...MOCK_ANALYSIS, callId: "sim-demo-001" });
+    toast({ title: "Simulation active", description: "All panels are now populated with mock live call data." });
+    setTimeout(() => setIsSimulating(false), 500);
+  }, [updateAnalysis, updateTranscript, toast]);
 
   const [callStartTime, setCallStartTime] = useState<Date | null>(null);
   const [now, setNow] = useState<Date | null>(null); // Start with null for SSR safety
@@ -132,8 +214,19 @@ export default function AgentDashboardPage() {
     }
   }, [callId, conferenceSid, customerParticipantSid, isOnHold, toast]);
 
+  const resetCall = useCallStore((s) => s.resetCall);
+
   const handleEndCall = useCallback(async () => {
     if (!callId) return;
+
+    // Simulation calls are local-only — no Twilio/Firestore to clean up
+    if (callId.startsWith("sim-")) {
+      resetCall();
+      endCall();
+      toast({ title: "Simulation ended", description: "Dashboard reset to standby." });
+      return;
+    }
+
     try {
       const auth = getAuth();
       const idToken = await auth.currentUser?.getIdToken();
@@ -159,7 +252,7 @@ export default function AgentDashboardPage() {
         variant: "destructive",
       });
     }
-  }, [callId, endCall, toast]);
+  }, [callId, endCall, resetCall, toast]);
 
   const liveSummary = useCallStore((s) => s.liveSummary);
 
@@ -270,11 +363,24 @@ export default function AgentDashboardPage() {
           >
             <Activity className="h-3 w-3 text-slate-500" />
             <span className={cn("text-[11px] font-bold capitalize", sentimentColor)}>
-              {sentimentLabel || "—"}
+              {customerDisposition || sentimentLabel || "—"}
             </span>
             {sentimentScore !== null && (
               <span className={cn("text-[10px] font-mono", sentimentColor)}>
                 {sentimentScore}
+              </span>
+            )}
+          </div>
+
+          {/* Intent */}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-500/20 bg-indigo-500/10">
+            <Zap className="h-3 w-3 text-indigo-300" />
+            <span className="text-[11px] font-semibold text-indigo-100 capitalize">
+              {intent ? intent.replace(/_/g, " ") : "intent pending"}
+            </span>
+            {typeof intentConfidence === "number" && (
+              <span className="text-[10px] font-mono text-indigo-300/80">
+                {Math.round(intentConfidence * 100)}%
               </span>
             )}
           </div>
@@ -354,17 +460,34 @@ export default function AgentDashboardPage() {
 
       {/* ─── Main Content Grid ─── */}
       <div className="flex-1 flex min-h-0 p-4 gap-4">
-        {/* Left Panel: Transcript + Sentiment */}
+        {/* Left Panel: Transcript + Suggestions + Sentiment */}
         <div className="flex-[3] flex flex-col gap-4 min-h-0">
           <div className="flex-1 min-h-0">
             <LiveTranscript />
           </div>
+          <ResponseSuggestionsPanel />
           <SentimentGraph />
         </div>
 
-        {/* Right Panel: Copilot */}
-        <div className="flex-[2] min-h-0">
-          <CopilotPanel />
+        {/* Right Panel: Intent + Knowledge + Copilot */}
+        <div className="flex-[2] flex flex-col gap-3 min-h-0 overflow-y-auto">
+          {/* Simulate button — only when no active call */}
+          {!callId && (
+            <button
+              type="button"
+              onClick={simulateLiveData}
+              disabled={isSimulating}
+              className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl border border-dashed border-white/[0.12] bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/[0.20] text-slate-400 hover:text-slate-300 text-[12px] font-semibold transition-all active:scale-[0.98] disabled:opacity-60"
+            >
+              <FlaskConical className="h-3.5 w-3.5" />
+              {isSimulating ? "Loading simulation…" : "Simulate Live Call Data"}
+            </button>
+          )}
+          <IntentPanel />
+          <KnowledgeRetrievalPanel />
+          <div className="min-h-[260px]">
+            <CopilotPanel />
+          </div>
         </div>
       </div>
 
