@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { adminAuth } from "@/lib/firebase-admin";
-import { connectDB } from "@/lib/mongoose";
-import { Call } from "@/lib/models/Call";
+import { adminAuth, adminDb } from "@/lib/firebase-admin";
 
 async function requireAgentContext() {
   const cookieStore = await cookies();
@@ -39,25 +37,23 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ca
       return NextResponse.json({ error: "Invalid resolved value" }, { status: 400 });
     }
 
-    if (process.env.MONGODB_URI) {
-      await connectDB();
-
-      const call = await Call.findOneAndUpdate(
-        { callId, agentId: auth.agentId },
-        { resolved },
-        { new: true }
-      );
-
-      if (!call) {
-        return NextResponse.json({ error: "Call not found" }, { status: 404 });
-      }
-
-      return NextResponse.json({ success: true, resolved: call.resolved });
+    const db = adminDb;
+    
+    // 1. Update live call state
+    const liveRef = db.collection("liveCallState").doc(callId);
+    const liveSnap = await liveRef.get();
+    
+    if (liveSnap.exists) {
+      await liveRef.update({ isResolved: resolved });
     }
 
-    return NextResponse.json({ error: "Database not configured" }, { status: 500 });
+    // 2. Update permanent call record
+    const callRef = db.collection("calls").doc(callId);
+    await callRef.update({ isResolved: resolved });
+
+    return NextResponse.json({ success: true, resolved });
   } catch (error: any) {
-    console.error("Error updating call status:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    console.error("Call Status Migration Error:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

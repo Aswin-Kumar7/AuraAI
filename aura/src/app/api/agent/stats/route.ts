@@ -49,7 +49,7 @@ export async function GET() {
     let totalCSAT = 0;
     let csatCount = 0;
 
-    callsSnap.forEach((doc: any) => {
+    callsSnap.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot<FirebaseFirestore.DocumentData>) => {
       const data = doc.data();
       if (data.status === "completed" && typeof data.duration === "number") {
         totalDuration += data.duration;
@@ -71,7 +71,7 @@ export async function GET() {
     });
 
     return NextResponse.json({ callsToday: 0, avgAHT: 0, avgCSAT: 0 });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error fetching agent stats:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

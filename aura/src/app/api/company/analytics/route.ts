@@ -1,11 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { adminAuth } from "@/lib/firebase-admin";
-import { connectDB } from "@/lib/mongoose";
-import { Call } from "@/lib/models/Call";
-import { Agent } from "@/lib/models/Agent";
-import { CallerMemory } from "@/lib/models/CallerMemory";
-import { AuditLog } from "@/lib/models/AuditLog";
+import { adminAuth, adminDb } from "@/lib/firebase-admin";
 
 async function requireCompanyContext() {
   const cookieStore = await cookies();
@@ -26,8 +21,13 @@ async function requireCompanyContext() {
     return { ok: false as const, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
 
-  const userDoc = await adminAuth.getUser(uid);
-  const companyId = userDoc.customClaims?.companyId as string;
+  const userDocSnapshot = await adminDb.collection("users").doc(uid).get();
+  if (!userDocSnapshot.exists) {
+    return { ok: false as const, response: NextResponse.json({ error: "User not found" }, { status: 401 }) };
+  }
+
+  const data = userDocSnapshot.data();
+  const companyId = data?.companyId as string;
   if (!companyId) {
     return { ok: false as const, response: NextResponse.json({ error: "Company ID missing" }, { status: 400 }) };
   }
@@ -50,195 +50,143 @@ export async function GET(request: Request) {
 
     const fromDate = new Date(from);
     const toDate = new Date(to);
-    toDate.setHours(23, 59, 59, 999); // End of day
+    toDate.setHours(23, 59, 59, 999);
 
-    if (process.env.MONGODB_URI) {
-      await connectDB();
+    // 1. Fetch Calls from Firestore
+    const callsSnap = await adminDb.collection("calls")
+      .where("companyId", "==", auth.companyId)
+      .where("createdAt", ">=", fromDate.toISOString())
+      .where("createdAt", "<=", toDate.toISOString())
+      .get();
 
-      const matchFilter = {
-        companyId: auth.companyId,
-        createdAt: { $gte: fromDate, $lte: toDate }
-      };
+    const calls = callsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-      // Daily Calls
-      const dailyCalls = await Call.aggregate([
-        { $match: matchFilter },
-        {
-          $group: {
-            _id: {
-              $dateToString: { format: "%Y-%m-%d", date: "$createdAt" }
-            },
-            count: { $sum: 1 }
-          }
-        },
-        { $sort: { "_id": 1 } },
-        {
-          $project: {
-            date: "$_id",
-            count: 1,
-            _id: 0
-          }
-        }
-      ]);
+    // 2. Daily Calls Aggregation
+    const dailyCallsMap: Record<string, number> = {};
+    calls.forEach((call: any) => {
+      const date = call.createdAt.split('T')[0];
+      dailyCallsMap[date] = (dailyCallsMap[date] || 0) + 1;
+    });
+    const dailyCalls = Object.entries(dailyCallsMap).map(([date, count]) => ({ date, count })).sort((a, b) => a.date.localeCompare(b.date));
 
-      // Per Agent Stats
-      const perAgentStats = await Call.aggregate([
-        { $match: matchFilter },
-        {
-          $group: {
-            _id: "$agentId",
-            calls: { $sum: 1 },
-            avgAHT: { $avg: "$duration" },
-            avgCSAT: { $avg: "$summary.callQualityScore" },
-            resolved: { $sum: { $cond: ["$resolved", 1, 0] } },
-            total: { $sum: 1 }
-          }
-        },
-        {
-          $project: {
-            agentId: "$_id",
-            calls: 1,
-            avgAHT: { $round: ["$avgAHT", 0] },
-            avgCSAT: { $round: ["$avgCSAT", 1] },
-            resolvedRate: { $round: [{ $multiply: [{ $divide: ["$resolved", "$total"] }, 100] }, 1] },
-            _id: 0
-          }
-        }
-      ]);
+    // 3. Per Agent Stats
+    const agentStatsMap: Record<string, any> = {};
+    calls.forEach((call: any) => {
+      const aid = call.agentId;
+      if (!agentStatsMap[aid]) {
+        agentStatsMap[aid] = { agentId: aid, calls: 0, totalDuration: 0, totalCSAT: 0, resolvedCount: 0, csatCount: 0 };
+      }
+      const stat = agentStatsMap[aid];
+      stat.calls += 1;
+      if (call.duration) stat.totalDuration += call.duration;
+      if (call.summary?.callQualityScore) {
+        stat.totalCSAT += call.summary.callQualityScore;
+        stat.csatCount += 1;
+      }
+      if (call.resolved) stat.resolvedCount += 1;
+    });
 
-      // Get agent names and suggestions used
-      const agentIds = perAgentStats.map(stat => stat.agentId);
-      const agents = await Agent.find({ uid: { $in: agentIds } }).select('uid name');
-      const agentMap = agents.reduce((map, agent) => {
-        map[agent.uid] = agent.name;
-        return map;
-      }, {} as Record<string, string>);
-
-      // Suggestions used rate
-      const suggestionsStats = await AuditLog.aggregate([
-        { $match: { companyId: auth.companyId, timestamp: { $gte: fromDate, $lte: toDate } } },
-        {
-          $group: {
-            _id: "$agentId",
-            used: { $sum: { $cond: ["$agentUsed", 1, 0] } },
-            total: { $sum: 1 }
-          }
-        },
-        {
-          $project: {
-            agentId: "$_id",
-            suggestionsUsedRate: { $round: [{ $multiply: [{ $divide: ["$used", "$total"] }, 100] }, 1] },
-            _id: 0
-          }
-        }
-      ]);
-      const suggestionsMap = suggestionsStats.reduce((map, stat) => {
-        map[stat.agentId] = stat.suggestionsUsedRate;
-        return map;
-      }, {} as Record<string, number>);
-
-      perAgentStats.forEach(stat => {
-        stat.agentName = agentMap[stat.agentId] || "Unknown";
-        stat.suggestionsUsedRate = suggestionsMap[stat.agentId] || 0;
-      });
-
-      // Sentiment Trend
-      const sentimentTrend = await Call.aggregate([
-        { $match: matchFilter },
-        { $unwind: "$sentimentArc" },
-        {
-          $group: {
-            _id: {
-              $dateToString: { format: "%Y-%m-%d", date: "$sentimentArc.timestamp" }
-            },
-            avgSentiment: { $avg: "$sentimentArc.score" }
-          }
-        },
-        { $sort: { "_id": 1 } },
-        {
-          $project: {
-            date: "$_id",
-            avgSentiment: { $round: ["$avgSentiment", 1] },
-            _id: 0
-          }
-        }
-      ]);
-
-      // Repeat Issues
-      const topRepeatIssues = await CallerMemory.aggregate([
-        { $match: { companyId: auth.companyId } },
-        { $unwind: "$history" },
-        {
-          $match: {
-            "history.date": { $gte: fromDate, $lte: toDate }
-          }
-        },
-        {
-          $group: {
-            _id: "$history.issue",
-            count: { $sum: 1 }
-          }
-        },
-        { $sort: { count: -1 } },
-        { $limit: 5 },
-        {
-          $project: {
-            issue: "$_id",
-            count: 1,
-            _id: 0
-          }
-        }
-      ]);
-
-      // Additional metrics
-      const totalCalls = await Call.countDocuments(matchFilter);
-      const avgAHT = await Call.aggregate([
-        { $match: { ...matchFilter, duration: { $exists: true } } },
-        { $group: { _id: null, avg: { $avg: "$duration" } } }
-      ]);
-      const avgAHTValue = avgAHT.length > 0 ? Math.round(avgAHT[0].avg) : 0;
-
-      const aiAdoption = await AuditLog.aggregate([
-        { $match: { ...matchFilter } },
-        {
-          $group: {
-            _id: null,
-            used: { $sum: { $cond: ["$agentUsed", 1, 0] } },
-            total: { $sum: 1 }
-          }
-        }
-      ]);
-      const aiAdoptionRate = aiAdoption.length > 0 ? Math.round((aiAdoption[0].used / aiAdoption[0].total) * 100) : 0;
-
-      const escalationRate = await Call.aggregate([
-        { $match: matchFilter },
-        {
-          $group: {
-            _id: null,
-            escalated: { $sum: { $cond: [{ $eq: ["$status", "escalated"] }, 1, 0] } },
-            total: { $sum: 1 }
-          }
-        }
-      ]);
-      const escalationRateValue = escalationRate.length > 0 ? Math.round((escalationRate[0].escalated / escalationRate[0].total) * 100) : 0;
-
-      return NextResponse.json({
-        dailyCalls,
-        perAgentStats,
-        sentimentTrend,
-        topRepeatIssues,
-        metrics: {
-          totalCalls,
-          avgAHT: avgAHTValue,
-          aiAdoptionRate,
-          escalationRate: escalationRateValue
-        }
+    // Fetch Agent Names
+    const agentIds = Object.keys(agentStatsMap);
+    const agentsMap: Record<string, string> = {};
+    if (agentIds.length > 0) {
+      const agentsSnap = await adminDb.collection("users").where("__name__", "in", agentIds.slice(0, 10)).get(); // Firestore limitation: max 10 for 'in'
+      agentsSnap.docs.forEach(doc => {
+        agentsMap[doc.id] = doc.data().name || "Unknown";
       });
     }
 
-    return NextResponse.json({ error: "Database not configured" }, { status: 500 });
+    // 4. AI Adoption from AuditLogs
+    const auditSnap = await adminDb.collection("auditLogs")
+      .where("companyId", "==", auth.companyId)
+      .where("timestamp", ">=", fromDate.toISOString())
+      .where("timestamp", "<=", toDate.toISOString())
+      .get();
+    
+    const auditLogs = auditSnap.docs.map(doc => doc.data());
+    const auditByAgent: Record<string, { used: number, total: number }> = {};
+    auditLogs.forEach((log: any) => {
+      if (!auditByAgent[log.agentId]) auditByAgent[log.agentId] = { used: 0, total: 0 };
+      auditByAgent[log.agentId].total += 1;
+      if (log.agentUsed) auditByAgent[log.agentId].used += 1;
+    });
+
+    const perAgentStats = Object.values(agentStatsMap).map(stat => ({
+      agentId: stat.agentId,
+      agentName: agentsMap[stat.agentId] || "Agent",
+      calls: stat.calls,
+      avgAHT: stat.calls > 0 ? Math.round(stat.totalDuration / stat.calls) : 0,
+      avgCSAT: stat.csatCount > 0 ? parseFloat((stat.totalCSAT / stat.csatCount).toFixed(1)) : 0,
+      resolvedRate: stat.calls > 0 ? parseFloat(((stat.resolvedCount / stat.calls) * 100).toFixed(1)) : 0,
+      suggestionsUsedRate: auditByAgent[stat.agentId] ? parseFloat(((auditByAgent[stat.agentId].used / auditByAgent[stat.agentId].total) * 100).toFixed(1)) : 0
+    }));
+
+    // 5. Sentiment Trends
+    const sentimentTrendMap: Record<string, { total: number, count: number }> = {};
+    calls.forEach((call: any) => {
+      if (call.sentimentArc && Array.isArray(call.sentimentArc)) {
+        call.sentimentArc.forEach((point: any) => {
+          const sDate = point.timestamp?.split('T')[0];
+          if (sDate) {
+            if (!sentimentTrendMap[sDate]) sentimentTrendMap[sDate] = { total: 0, count: 0 };
+            sentimentTrendMap[sDate].total += point.score;
+            sentimentTrendMap[sDate].count += 1;
+          }
+        });
+      }
+    });
+    const sentimentTrend = Object.entries(sentimentTrendMap).map(([date, data]) => ({
+      date,
+      avgSentiment: parseFloat((data.total / data.count).toFixed(1))
+    })).sort((a, b) => a.date.localeCompare(b.date));
+
+    // 6. Repeat Issues
+    const memorySnap = await adminDb.collection("callerMemory")
+      .where("companyId", "==", auth.companyId)
+      .get();
+    
+    const issueCounts: Record<string, number> = {};
+    memorySnap.docs.forEach(doc => {
+      const history = doc.data().history || [];
+      history.forEach((h: any) => {
+        const hDate = new Date(h.date);
+        if (hDate >= fromDate && hDate <= toDate) {
+          issueCounts[h.issue] = (issueCounts[h.issue] || 0) + 1;
+        }
+      });
+    });
+    const topRepeatIssues = Object.entries(issueCounts)
+      .map(([issue, count]) => ({ issue, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    // 7. Overall Metrics
+    const totalCalls = calls.length;
+    const totalDuration = calls.reduce((acc, c: any) => acc + (c.duration || 0), 0);
+    const avgAHTValue = totalCalls > 0 ? Math.round(totalDuration / totalCalls) : 0;
+    
+    const totalAudit = auditLogs.length;
+    const usedAudit = auditLogs.filter((l: any) => l.agentUsed).length;
+    const aiAdoptionRate = totalAudit > 0 ? Math.round((usedAudit / totalAudit) * 100) : 0;
+
+    const escalatedCalls = calls.filter((c: any) => c.status === "escalated").length;
+    const escalationRateValue = totalCalls > 0 ? Math.round((escalatedCalls / totalCalls) * 100) : 0;
+
+    return NextResponse.json({
+      dailyCalls,
+      perAgentStats,
+      sentimentTrend,
+      topRepeatIssues,
+      metrics: {
+        totalCalls,
+        avgAHT: avgAHTValue,
+        aiAdoptionRate,
+        escalationRate: escalationRateValue
+      }
+    });
+
   } catch (error: any) {
     console.error("Error fetching analytics:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Internal server error", details: error.message }, { status: 500 });
   }
-}
+}

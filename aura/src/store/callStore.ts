@@ -8,20 +8,28 @@ export interface TranscriptLine {
   timestamp?: string;
 }
 
+export type Suggestion = { text: string; tone?: string; rank?: number };
+
 export interface AnalysisState {
   callId: string | null;
   transcript: TranscriptLine[];
+  intent: string | null;
+  isPreviousIssue: boolean;
   sentimentScore: number | null;
   sentimentLabel: string | null;
-  suggestions: any[];
+  escalationRisk: number;
+  escalationReason: string;
+  interventionSuggestion: string;
+  suggestions: Suggestion[];
   complianceAlert: boolean;
+  complianceReason: string;
+  complianceSeverity: string;
   knowledgeSnippet: string;
   isRepeatCaller: boolean;
   activeMode: string | null;
   conferenceSid?: string | null;
   customerParticipantSid?: string | null;
   liveSummary?: string | null;
-  complianceReason?: string | null;
   sentimentArc?: number[];
 }
 
@@ -31,28 +39,42 @@ interface CallStore extends AnalysisState {
   resetCall: () => void;
   appendTranscript: (line: TranscriptLine) => void;
   setCallId: (id: string | null) => void;
+  setIntent: (intent: string | null) => void;
+  setIsPreviousIssue: (isPrevious: boolean) => void;
   setSentimentScore: (score: number | null) => void;
   setSentimentLabel: (label: string | null) => void;
-  setSuggestions: (suggestions: any[]) => void;
+  setEscalationRisk: (risk: number) => void;
+  setEscalationReason: (reason: string) => void;
+  setInterventionSuggestion: (suggestion: string) => void;
+  setSuggestions: (suggestions: Suggestion[]) => void;
   setComplianceAlert: (alert: boolean) => void;
+  setComplianceReason: (reason: string) => void;
+  setComplianceSeverity: (severity: string) => void;
   setKnowledgeSnippet: (snippet: string) => void;
+  setActiveMode: (mode: "whisper" | "alert" | "auto") => void;
   reset: () => void;
 }
 
 const initialState: AnalysisState = {
   callId: null,
   transcript: [],
+  intent: null,
+  isPreviousIssue: false,
   sentimentScore: null,
   sentimentLabel: null,
+  escalationRisk: 0,
+  escalationReason: "",
+  interventionSuggestion: "",
   suggestions: [],
   complianceAlert: false,
+  complianceReason: "",
+  complianceSeverity: "warning",
   knowledgeSnippet: "",
   isRepeatCaller: false,
   activeMode: null,
   conferenceSid: null,
   customerParticipantSid: null,
   liveSummary: null,
-  complianceReason: null,
   sentimentArc: [],
 };
 
@@ -79,6 +101,16 @@ export const useCallStore = create<CallStore>((set) => ({
       ...state,
       callId: id,
     })),
+  setIntent: (intent) =>
+    set((state) => ({
+      ...state,
+      intent,
+    })),
+  setIsPreviousIssue: (isPrevious) =>
+    set((state) => ({
+      ...state,
+      isPreviousIssue: isPrevious,
+    })),
   setSentimentScore: (score) =>
     set((state) => ({
       ...state,
@@ -89,20 +121,51 @@ export const useCallStore = create<CallStore>((set) => ({
       ...state,
       sentimentLabel: label,
     })),
+  setEscalationRisk: (risk) =>
+    set((state) => ({
+      ...state,
+      escalationRisk: risk,
+    })),
+  setEscalationReason: (reason) =>
+    set((state) => ({
+      ...state,
+      escalationReason: reason,
+    })),
+  setInterventionSuggestion: (suggestion) =>
+    set((state) => ({
+      ...state,
+      interventionSuggestion: suggestion,
+    })),
   setSuggestions: (suggestions) =>
     set((state) => ({
       ...state,
       suggestions,
     })),
+
   setComplianceAlert: (alert) =>
     set((state) => ({
       ...state,
       complianceAlert: alert,
     })),
+  setComplianceReason: (reason) =>
+    set((state) => ({
+      ...state,
+      complianceReason: reason,
+    })),
+  setComplianceSeverity: (severity) =>
+    set((state) => ({
+      ...state,
+      complianceSeverity: severity,
+    })),
   setKnowledgeSnippet: (snippet) =>
     set((state) => ({
       ...state,
       knowledgeSnippet: snippet,
+    })),
+  setActiveMode: (mode) =>
+    set((state) => ({
+      ...state,
+      activeMode: mode,
     })),
   reset: () => set(() => ({ ...initialState })),
 }));

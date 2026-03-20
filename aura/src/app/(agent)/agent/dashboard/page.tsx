@@ -126,8 +126,9 @@ export default function AgentDashboardPage() {
         title: nextHold ? "Call on Hold" : "Call Resumed",
         description: nextHold ? "Customer is hearing the hold notice." : "Customer is back on the line."
       });
-    } catch (e: any) {
-      toast({ title: "Hold Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Unknown hold error";
+      toast({ title: "Hold Error", description: message, variant: "destructive" });
     }
   }, [callId, conferenceSid, customerParticipantSid, isOnHold, toast]);
 
@@ -150,10 +151,11 @@ export default function AgentDashboardPage() {
 
       toast({ title: "Call ended" });
       endCall(); // If WebRTC is active
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Unknown end call error";
       toast({
         title: "Error",
-        description: e.message,
+        description: message,
         variant: "destructive",
       });
     }

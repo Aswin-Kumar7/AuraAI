@@ -131,6 +131,12 @@ export default function DemoPage() {
           const data = await response.json();
           useCallStore
             .getState()
+            .setIntent(data.intent || "general_inquiry");
+          useCallStore
+            .getState()
+            .setIsPreviousIssue(data.isPreviousIssue || false);
+          useCallStore
+            .getState()
             .setSuggestions(data.suggestions || []);
           useCallStore
             .getState()

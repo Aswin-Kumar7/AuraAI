@@ -1,27 +1,32 @@
 import { NextResponse } from "next/server";
-import { connectDB } from "@/lib/mongoose";
-import { Call } from "@/lib/models/Call";
+import { adminDb } from "@/lib/firebase-admin";
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get("limit") || "10", 10);
 
-    if (process.env.MONGODB_URI) {
-      await connectDB();
+    const callsSnap = await adminDb.collection("calls")
+      .orderBy("createdAt", "desc")
+      .limit(limit)
+      .get();
 
-      const calls = await Call.find()
-        .sort({ timestamp: -1 })
-        .limit(limit)
-        .select('timestamp agentEmail callerMasked issue duration resolved')
-        .lean();
+    const calls = callsSnap.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        timestamp: data.createdAt || new Date().toISOString(),
+        callerMasked: data.callerPhone || "Unknown",
+        issue: data.summary || data.lastTopic || "N/A",
+        duration: data.duration || 0,
+        resolved: !!data.isResolved,
+        agentId: data.agentId || "Unknown"
+      };
+    });
 
-      return NextResponse.json(calls);
-    }
-    
-    return NextResponse.json([]);
+    return NextResponse.json(calls);
   } catch (error: any) {
-    console.error("Mongoose error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    console.error("Company Calls Migration Error:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

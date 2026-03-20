@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -26,11 +26,15 @@ interface ContactData {
 
 export default function PhonebookPage() {
   const [contacts, setContacts] = useState<ContactData[]>([]);
-  const [filtered, setFiltered] = useState<ContactData[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   
   const [selectedContact, setSelectedContact] = useState<ContactData | null>(null);
+  const [showAddContact, setShowAddContact] = useState(false);
+  const [newContactName, setNewContactName] = useState("");
+  const [newContactPhone, setNewContactPhone] = useState("");
+  const [editName, setEditName] = useState("");
+
   const router = useRouter();
 
   useEffect(() => {
@@ -38,18 +42,74 @@ export default function PhonebookPage() {
       .then(res => res.json())
       .then(data => {
         setContacts(data.contacts || []);
-        setFiltered(data.contacts || []);
       })
       .catch(err => console.error(err))
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
+  const filteredContacts = useMemo(() => {
     const q = search.toLowerCase();
-    setFiltered(contacts.filter(c => 
+    return contacts.filter((c) =>
       c.phone.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)
-    ));
+    );
   }, [search, contacts]);
+
+  const handleAddContact = async () => {
+    if (!newContactName.trim() || !newContactPhone.trim()) return;
+    const normalizedPhone = newContactPhone.trim();
+
+    if (contacts.some((c) => c.phone === normalizedPhone)) {
+      alert("Contact with this phone number already exists.");
+      return;
+    }
+
+    const newContact: ContactData = {
+      name: newContactName.trim(),
+      phone: normalizedPhone,
+      callCount: 0,
+      lastCallAt: "",
+      lastIssue: "",
+      summaries: [],
+    };
+
+    setContacts((prev) => [newContact, ...prev]);
+    setNewContactName("");
+    setNewContactPhone("");
+    setShowAddContact(false);
+
+    try {
+      await fetch("/api/agent/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contact: newContact }),
+      });
+    } catch (err) {
+      console.warn("Could not persist new contact:", err);
+    }
+  };
+
+  const handleUpdateCustomerName = (phone: string, newName: string) => {
+    if (!newName.trim()) return;
+
+    setContacts((prev) =>
+      prev.map((c) =>
+        c.phone === phone
+          ? { ...c, name: newName.trim() }
+          : c
+      )
+    );
+
+    if (selectedContact?.phone === phone) {
+      setSelectedContact({ ...selectedContact, name: newName.trim() });
+    }
+
+    // Optional: persist with PATCH endpoint if implemented
+    fetch(`/api/agent/contacts`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone, name: newName.trim() }),
+    }).catch((err) => console.warn("Could not persist contact name update:", err));
+  };
 
   const handleCall = (phone: string) => {
     router.push(`/agent/dashboard?dial=${phone.replace(/\D/g, '')}`);
@@ -69,8 +129,8 @@ export default function PhonebookPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 flex gap-4">
-        <div className="relative flex-1">
+      <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 flex flex-wrap gap-4 items-center justify-between">
+        <div className="relative flex-1 min-w-[250px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
           <Input
             placeholder="Search by name or number..."
@@ -79,6 +139,12 @@ export default function PhonebookPage() {
             className="pl-9 bg-white/[0.04] border-white/[0.08] text-white focus:border-indigo-500/50"
           />
         </div>
+        <Button
+          onClick={() => setShowAddContact(true)}
+          className="bg-indigo-500 hover:bg-indigo-600 text-white"
+        >
+          Add New Number
+        </Button>
       </div>
 
       <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
@@ -105,18 +171,21 @@ export default function PhonebookPage() {
                   <TableCell className="text-right"><Skeleton className="h-8 w-16 ml-auto rounded-md bg-white/[0.06]" /></TableCell>
                 </TableRow>
               ))
-            ) : filtered.length === 0 ? (
+            ) : filteredContacts.length === 0 ? (
               <TableRow className="border-b-transparent hover:bg-transparent">
                 <TableCell colSpan={6} className="text-center py-16 text-slate-500">
                   No contacts found. Have some inbound/outbound calls first to populate this CRM.
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((c) => (
+              filteredContacts.map((c) => (
                 <TableRow 
                   key={c.phone} 
                   className="border-b-white/[0.04] hover:bg-white/[0.03] transition-colors cursor-pointer group"
-                  onClick={() => setSelectedContact(c)}
+                  onClick={() => {
+                    setSelectedContact(c);
+                    setEditName(c.name);
+                  }}
                 >
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -152,6 +221,37 @@ export default function PhonebookPage() {
         </Table>
       </div>
 
+      <Sheet open={showAddContact} onOpenChange={(v) => !v && setShowAddContact(false)}>
+        <SheetContent className="bg-[#0a0e1a] border-white/[0.08] sm:max-w-md p-6 overflow-y-auto">
+          <SheetHeader className="mb-6">
+            <SheetTitle className="text-xl text-white/90">Add New Contact</SheetTitle>
+            <p className="text-sm text-slate-400">Enter phone and customer name to add to phonebook.</p>
+          </SheetHeader>
+          <div className="space-y-4">
+            <Input
+              placeholder="Customer Name"
+              value={newContactName}
+              onChange={(e) => setNewContactName(e.target.value)}
+              className="bg-white/[0.04] border-white/[0.08] text-white"
+            />
+            <Input
+              placeholder="Phone Number"
+              value={newContactPhone}
+              onChange={(e) => setNewContactPhone(e.target.value)}
+              className="bg-white/[0.04] border-white/[0.08] text-white"
+            />
+            <div className="flex gap-2">
+              <Button onClick={handleAddContact} className="bg-indigo-500 hover:bg-indigo-600 text-white flex-1">
+                Save Contact
+              </Button>
+              <Button onClick={() => setShowAddContact(false)} className="bg-white/[0.08] text-white/80 flex-1">
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+
       <Sheet open={!!selectedContact} onOpenChange={(v) => !v && setSelectedContact(null)}>
         {selectedContact && (
           <SheetContent className="bg-[#0a0e1a] border-white/[0.08] sm:max-w-md p-6 overflow-y-auto">
@@ -163,6 +263,20 @@ export default function PhonebookPage() {
               </div>
               <SheetTitle className="text-center text-white/90 text-xl">{selectedContact.name}</SheetTitle>
               <div className="text-center font-mono text-slate-400 text-sm">{selectedContact.phone}</div>
+              <div className="mt-4 space-y-2">
+                <Input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="bg-white/[0.04] border-white/[0.08] text-white"
+                />
+                <Button
+                  size="sm"
+                  onClick={() => handleUpdateCustomerName(selectedContact.phone, editName)}
+                  className="w-full bg-indigo-500 hover:bg-indigo-600 text-white"
+                >
+                  Update Customer Name
+                </Button>
+              </div>
             </SheetHeader>
 
             <div className="space-y-6">

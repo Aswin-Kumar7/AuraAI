@@ -5,8 +5,10 @@ import { z } from "zod";
 import { callGroq } from "@/lib/groq";
 import { buildAnalysisSystemPrompt, buildAnalysisUserPrompt } from "@/lib/prompts";
 import { retrieveRelevantKB } from "@/lib/rag";
-// Removed MongoDB imports for Firestore migration
-import { TranscriptLine } from "@/store/callStore"; 
+
+type TranscriptLine = { speaker: string; text: string; timestamp?: string | Date };
+type CallerHistoryEntry = { callId: string; date: string; issue: string; resolved: boolean; summary: string; };
+
 
 const bodySchema = z.object({
   callId: z.string(),
@@ -62,12 +64,10 @@ async function getUserContext(req: Request) {
     return { ok: false as const, response: NextResponse.json({ error: "User not found" }, { status: 401 }) };
   }
 
-  const data = userDoc.data() as any;
-  if (!data?.companyId) {
-    return { ok: true as const, uid, companyId: "aura-demo-id" }; // Fallback for testing
-  }
+  const data = userDoc.data() as { companyId?: string } | undefined;
+  const companyId = data?.companyId || "aura-demo-id";
 
-  return { ok: true as const, uid, companyId: data.companyId as string };
+  return { ok: true as const, uid, companyId };
 }
 
 export async function POST(request: Request) {
@@ -84,41 +84,49 @@ export async function POST(request: Request) {
     const { callId, newLine, companyConfig: demoConfig, callerMemory: demoMemory } = parsed.data;
     const isDemo = callId.startsWith("demo-call-");
 
-    let transcript: { speaker: string; text: string; timestamp?: any }[] = [];
+    type LiveCallStateDoc = {
+      transcript?: TranscriptLine[];
+      companyId?: string;
+      callerPhone?: string;
+      lastAnalyzedAt?: number;
+    };
+
+    let transcript: TranscriptLine[] = [];
     let companyId: string = ctx.companyId;
     let callerPhone: string | undefined;
 
+    let liveRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData> | null = null;
+    let liveData: LiveCallStateDoc | null = null;
+
     if (isDemo) {
-      // For demo, use provided transcript or build it
-      transcript = []; // Demo will send full transcript
+      transcript = [];
       companyId = ctx.companyId;
-    } else {
-      // 1. Firestore liveCallState/{callId}
-      const liveRef = adminDb.collection("liveCallState").doc(callId);
-      const liveSnap = await liveRef.get();
-      if (!liveSnap.exists) {
-        return NextResponse.json({ error: "Call not found" }, { status: 404 });
-      }
-      const liveData = liveSnap.data() as any;
-
-      transcript = liveData?.transcript || [];
-      companyId = liveData.companyId || ctx.companyId;
-      callerPhone = liveData.callerPhone;
-    }
-
-    let lastAnalyzedAt: number = 0;
-    let liveRef: any;
-    let liveData: any;
-
-    if (isDemo) {
-      // For demo, no rate limit
     } else {
       liveRef = adminDb.collection("liveCallState").doc(callId);
       const liveSnap = await liveRef.get();
       if (!liveSnap.exists) {
         return NextResponse.json({ error: "Call not found" }, { status: 404 });
       }
-      liveData = liveSnap.data() as any;
+
+      liveData = liveSnap.data() as LiveCallStateDoc;
+      transcript = liveData?.transcript || [];
+      companyId = liveData.companyId || ctx.companyId;
+      callerPhone = liveData.callerPhone;
+    }
+
+    let lastAnalyzedAt: number = 0;
+
+    if (isDemo) {
+      // For demo, no rate limit
+    } else {
+      if (!liveRef) {
+        liveRef = adminDb.collection("liveCallState").doc(callId);
+      }
+      const liveSnap = await liveRef.get();
+      if (!liveSnap.exists) {
+        return NextResponse.json({ error: "Call not found" }, { status: 404 });
+      }
+      liveData = liveSnap.data() as LiveCallStateDoc;
       lastAnalyzedAt = liveData.lastAnalyzedAt || 0;
     }
 
@@ -128,17 +136,41 @@ export async function POST(request: Request) {
     const now = Date.now();
     if (!isDemo && lastAnalyzedAt && now - lastAnalyzedAt < 2000) {
       // still append transcript but skip analysis
+      if (!liveRef) {
+        return NextResponse.json({ error: "Call reference lost" }, { status: 500 });
+      }
       await liveRef.update({ transcript: updatedTranscript });
       return NextResponse.json({ skipped: true });
     }
 
     // 2. Company config
     const configSnap = await adminDb.collection("companyConfig").doc(companyId).get();
-    const config = (configSnap.data() as any) || {};
+    const config = (configSnap.data() as {
+      complianceKeywords?: string[];
+      alertThreshold?: number;
+      language?: "en" | "hi" | "hinglish" | "auto";
+    } | undefined) || {};
     const complianceKeywords: string[] = demoConfig?.complianceKeywords || config.complianceKeywords || [];
     const alertThreshold: number = demoConfig?.alertThreshold ?? (typeof config.alertThreshold === "number" ? config.alertThreshold : 70);
     const language: "en" | "hi" | "hinglish" | "auto" =
       config.language || "en";
+
+    // 2b. Fetch compliance rules from Firestore
+    let complianceRulesText = "";
+    if (!isDemo) {
+      const rulesSnap = await adminDb.collection("complianceRules")
+        .where("companyId", "==", companyId)
+        .get();
+      
+      if (!rulesSnap.empty) {
+        complianceRulesText = rulesSnap.docs
+          .map((doc) => {
+            const rule = doc.data();
+            return `- KEYWORD: "${rule.keyword}" | SEVERITY: ${rule.severity} | REASON: ${rule.description} | SUGGEST: "${rule.suggestedReplacement || 'Avoid this phrase'}"`;
+          })
+          .join("\n");
+      }
+    }
 
     // 4. Extract last customer message & last lines
     const lastLines = updatedTranscript.slice(-6);
@@ -153,14 +185,15 @@ export async function POST(request: Request) {
       : [];
 
     // Caller history from Firestore
-    let callerHistory: any[] | null = null;
-    if (demoMemory && typeof demoMemory === "object") {
+    let callerHistory: CallerHistoryEntry[] | null = null;
+    if (demoMemory && typeof demoMemory === "object" && "lastIssue" in demoMemory && "lastResolved" in demoMemory) {
+      const dm = demoMemory as { lastIssue: string; lastResolved: boolean };
       callerHistory = [{
         callId: "demo-call",
-        date: new Date(),
-        issue: (demoMemory as any).lastIssue,
-        resolved: (demoMemory as any).lastResolved,
-        summary: `Previous call about ${(demoMemory as any).lastIssue}`
+        date: new Date().toISOString(),
+        issue: dm.lastIssue,
+        resolved: dm.lastResolved,
+        summary: `Previous call about ${dm.lastIssue}`
       }];
     } else if (callerPhone) {
       const memDoc = await adminDb.collection("callerMemory")
@@ -181,7 +214,8 @@ export async function POST(request: Request) {
       kbChunks,
       complianceKeywords,
       language,
-      callerHistory
+      callerHistory,
+      complianceRulesText
     );
     const userPrompt = buildAnalysisUserPrompt(lastLines);
 
@@ -189,42 +223,75 @@ export async function POST(request: Request) {
     const groqText = await callGroq(systemPrompt, userPrompt, 800);
 
     // 8. Parse JSON safely
-    let parsedAi: any = {};
+    type AiResponse = {
+      intent?: string;
+      isPreviousIssue?: boolean;
+      sentiment?: number;
+      sentimentLabel?: string;
+      escalationRisk?: number;
+      escalationReason?: string;
+      interventionSuggestion?: string;
+      suggestions?: Array<{ text?: string; tone?: string; rank?: number }>;
+      complianceAlert?: boolean;
+      complianceReason?: string;
+      complianceSeverity?: string;
+      knowledgeSnippet?: string;
+      detectedLanguage?: string;
+      liveSummary?: string;
+    };
+
+    let parsedAi: AiResponse = {};
     if (groqText) {
       try {
-        parsedAi = JSON.parse(groqText);
-      } catch (e) {
+        parsedAi = JSON.parse(groqText) as AiResponse;
+      } catch (e: unknown) {
         console.error("Failed to parse Groq JSON", e, groqText);
         parsedAi = {};
       }
     }
 
+    const intent: string = parsedAi.intent || "general_inquiry";
+    const isPreviousIssue: boolean = !!parsedAi.isPreviousIssue;
     const sentiment: number =
       typeof parsedAi.sentiment === "number" ? parsedAi.sentiment : 50;
     const sentimentLabel: string =
       parsedAi.sentimentLabel || "calm";
+    const escalationRisk: number =
+      typeof parsedAi.escalationRisk === "number" ? Math.min(Math.max(parsedAi.escalationRisk, 0), 1) : 0;
+    const escalationReason: string = parsedAi.escalationReason || "";
+    const interventionSuggestion: string = parsedAi.interventionSuggestion || "";
 
-    const suggestions: any[] = Array.isArray(parsedAi.suggestions)
+    const suggestions = Array.isArray(parsedAi.suggestions)
       ? parsedAi.suggestions.slice(0, 3)
       : [];
 
     const complianceAlert: boolean = !!parsedAi.complianceAlert;
     const complianceReason: string = parsedAi.complianceReason || "";
+    const complianceSeverity: string = parsedAi.complianceSeverity || "warning";
     const knowledgeSnippet: string = parsedAi.knowledgeSnippet || "";
 
     const detectedLanguage: string = parsedAi.detectedLanguage || language;
     const liveSummary: string = parsedAi.liveSummary || "";
 
+    // Determine mode: alert if compliance issue, escalation risk > 0.6, or low sentiment
     const mode =
-      sentiment < alertThreshold || complianceAlert ? "alert" : "normal";
+      complianceAlert || escalationRisk > 0.6 || sentiment < alertThreshold ? "alert" : "whisper";
 
     // 9. Update Firestore liveCallState (skip for demo)
     if (!isDemo) {
+      if (!liveRef) {
+        return NextResponse.json({ error: "Call reference lost" }, { status: 500 });
+      }
       await liveRef.set(
       {
         transcript: updatedTranscript,
+        intent,
+        isPreviousIssue,
         sentimentScore: sentiment,
         sentimentLabel,
+        escalationRisk,
+        escalationReason,
+        interventionSuggestion,
         // Atomic push to the arc for graphing
         sentimentArc: FieldValue.arrayUnion({
            score: sentiment,
@@ -233,6 +300,7 @@ export async function POST(request: Request) {
         currentSuggestions: suggestions,
         complianceAlert,
         complianceReason,
+        complianceSeverity,
         knowledgeSnippet,
         detectedLanguage,
         liveSummary,
@@ -266,21 +334,28 @@ export async function POST(request: Request) {
     // 12. Return JSON
     return NextResponse.json({
       callId,
+      intent,
+      isPreviousIssue,
       sentiment,
       sentimentLabel,
+      escalationRisk,
+      escalationReason,
+      interventionSuggestion,
       suggestions,
       complianceAlert,
       complianceReason,
+      complianceSeverity,
       knowledgeSnippet,
       detectedLanguage,
       mode,
       skipped: false,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal server error";
     console.error("AI analyze error", error);
     return NextResponse.json(
       {
-        error: error.message || "Internal server error",
+        error: message,
         fallback: true,
       },
       { status: 500 }

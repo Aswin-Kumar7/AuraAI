@@ -3,8 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   /* config options here */
   allowedDevOrigins: [
-    "territory-somewhat-browsing-offering.trycloudflare.com",
-    "grows-southeast-broken-offering.trycloudflare.com"
+    "antibody-statutes-silly-driven.trycloudflare.com",
+    "spouse-infinite-tradition-rivers.trycloudflare.com"
   ]
 };
 

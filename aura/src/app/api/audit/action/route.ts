@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
-import { connectDB } from "@/lib/mongoose";
-import { AuditLog } from "@/lib/models/AuditLog";
 import { z } from "zod";
 
 const bodySchema = z.object({
@@ -49,12 +47,6 @@ export async function POST(request: Request) {
     const ctx = await getCompanyContext();
     if (!ctx.ok) return ctx.response;
 
-    if (!process.env.MONGODB_URI) {
-      return NextResponse.json({ error: "MongoDB not configured" }, { status: 500 });
-    }
-
-    await connectDB();
-
     const json = await request.json();
     const parsed = bodySchema.safeParse(json);
     if (!parsed.success) {
@@ -63,23 +55,26 @@ export async function POST(request: Request) {
 
     const { callId, suggestionText, suggestionRank, agentUsed } = parsed.data;
 
-    const result = await AuditLog.findOneAndUpdate(
-      {
-        companyId: ctx.companyId,
-        callId,
-        aiSuggestion: suggestionText,
-        suggestionRank,
-      },
-      { $set: { agentUsed } },
-      { new: true }
-    ).lean();
+    // Find the relevant audit log in Firestore
+    const auditQuery = await adminDb.collection("auditLogs")
+      .where("companyId", "==", ctx.companyId)
+      .where("callId", "==", callId)
+      .where("aiSuggestion", "==", suggestionText)
+      .where("suggestionRank", "==", suggestionRank)
+      .limit(1)
+      .get();
 
-    if (!result) {
+    if (auditQuery.empty) {
       return NextResponse.json({ error: "Audit log not found" }, { status: 404 });
     }
 
+    // Update the document
+    const docRef = auditQuery.docs[0].ref;
+    await docRef.update({ agentUsed });
+
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    console.error("Audit action error:", error);
     return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500 });
   }
 }

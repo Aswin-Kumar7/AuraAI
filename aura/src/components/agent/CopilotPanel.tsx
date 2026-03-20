@@ -4,7 +4,7 @@ import { useCallStore } from "@/store/callStore";
 import { SuggestionCard } from "./SuggestionCard";
 import { AlertBanner } from "./AlertBanner";
 import { KnowledgeCard } from "./KnowledgeCard";
-import { useEffect, useState } from "react";
+
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { Eye, AlertTriangle, Cpu, Sparkles } from "lucide-react";
@@ -16,18 +16,21 @@ const MODES = [
 ];
 
 type Mode = (typeof MODES)[number]["id"];
+type SuggestionItem = { text?: string; tone?: string; rank?: number };
 
 export function CopilotPanel() {
   const callId = useCallStore((s) => s.callId);
   const suggestions = useCallStore((s) => s.suggestions);
   const activeMode = useCallStore((s) => s.activeMode);
+  const updateAnalysis = useCallStore((s) => s.updateAnalysis);
+  const setActiveMode = useCallStore((s) => s.setActiveMode);
 
-  const [mode, setMode] = useState<Mode>("Whisper"); // Default to Whisper
+  const mode: Mode = activeMode === "alert" ? "Alert" : activeMode === "auto" ? "Auto" : "Whisper";
 
-  useEffect(() => {
-    if (!activeMode) return;
-    if (activeMode === "alert") setMode("Alert");
-  }, [activeMode]);
+  const switchMode = (next: Mode) => {
+    setActiveMode(next.toLowerCase() as "whisper" | "alert" | "auto");
+    updateAnalysis({ activeMode: next.toLowerCase() as "whisper" | "alert" | "auto" });
+  };
 
   const isWhisper = mode === "Whisper";
   const isAlert = mode === "Alert";
@@ -55,7 +58,7 @@ export function CopilotPanel() {
               <button
                 key={m.id}
                 type="button"
-                onClick={() => setMode(m.id)}
+                onClick={() => switchMode(m.id)}
                 className={cn(
                   "flex-1 flex flex-col items-center justify-center gap-1.5 py-2 rounded-lg transition-all duration-200",
                   isActive
@@ -96,7 +99,7 @@ export function CopilotPanel() {
             {(isWhisper || (!isAlert && !isAuto)) && (
               <AnimatePresence mode="popLayout">
                 {suggestions && suggestions.length > 0 ? (
-                  suggestions.slice(0, 3).map((s: any, idx: number) => (
+                  suggestions.slice(0, 3).map((s: SuggestionItem, idx: number) => (
                     <motion.div
                       key={`${s.text}-${idx}`}
                       initial={{ opacity: 0, scale: 0.95 }}

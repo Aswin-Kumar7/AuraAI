@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getFirestore, doc, onSnapshot } from "firebase/firestore";
+import { getFirestore, doc, onSnapshot, setDoc, arrayUnion } from "firebase/firestore";
 import { useAuth } from "@/hooks/useAuth";
 import { useCallStore, TranscriptLine } from "@/store/callStore";
 
@@ -10,7 +10,6 @@ const db = getFirestore();
 export function useLiveCall() {
   const { user } = useAuth();
   const [incomingCall, setIncomingCall] = useState<{ callId: string; callerPhone: string } | null>(null);
-  // Read actions directly from store to avoid changing references on every render.
   const updateTranscript = useCallStore.getState().updateTranscript;
   const updateAnalysis = useCallStore.getState().updateAnalysis;
   const resetCall = useCallStore.getState().resetCall;
@@ -23,7 +22,6 @@ export function useLiveCall() {
     }
 
     const presenceRef = doc(db, "agentPresence", user.uid);
-
     let unsubLive: (() => void) | null = null;
     let recognition: any = null;
 
@@ -34,68 +32,53 @@ export function useLiveCall() {
 
       setIncomingCall(incoming);
 
-      // --- AGENT BROWSER TRANSCRIPTION (No Collision) ---
+      // --- AGENT BROWSER TRANSCRIPTION ---
       if (callId && !recognition && typeof window !== "undefined") {
          const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
          if (SpeechRecognition) {
-           recognition = new SpeechRecognition();
-           recognition.continuous = true;
-           recognition.interimResults = false;
-           recognition.lang = "en-IN"; // Target Indian English for the agent
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.lang = "en-IN";
 
-           recognition.onresult = async (event: any) => {
-             const result = event.results[event.results.length - 1];
-             if (result.isFinal) {
-               const text = result[0].transcript.trim();
-               if (text.length > 2) {
-                 // Push Agent Line to Firestore directly from Browser
-                 const { arrayUnion, updateDoc, doc: fsDoc } = await import("firebase/firestore");
-                 const liveRef = fsDoc(db, "liveCallState", callId);
-                 await updateDoc(liveRef, {
-                   transcript: arrayUnion({
-                     speaker: "agent",
-                     text,
-                     timestamp: new Date().toISOString()
-                   })
-                 }).catch(console.error);
-               }
-             }
-           };
+            recognition.onresult = async (event: any) => {
+              const result = event.results[event.results.length - 1];
+              if (result.isFinal) {
+                const text = result[0].transcript.trim();
+                if (text.length > 2) {
+                  // FIXED: Use setDoc with merge: true to avoid "NOT_FOUND" 5 error
+                  const liveRef = doc(db, "liveCallState", callId);
+                  await setDoc(liveRef, {
+                    callId,
+                    transcript: arrayUnion({
+                      speaker: "agent",
+                      text,
+                      timestamp: new Date().toISOString()
+                    })
+                  }, { merge: true }).catch(err => console.error("[AGENT-PUSH-ERR]:", err));
+                }
+              }
+            };
 
-           recognition.onerror = (e: any) => console.error("Agent Speech Error:", e);
-           recognition.onend = () => { if (callId) recognition?.start(); }; // Keep alive
-           recognition.start();
-           console.log("[AGENT MIC] Live via Browser");
+            recognition.onerror = (e: any) => console.error("Agent Speech Error:", e);
+            recognition.onend = () => { if (callId) recognition?.start(); };
+            recognition.start();
          }
       }
 
       if (!callId) {
-        if (unsubLive) {
-          unsubLive();
-          unsubLive = null;
-        }
-        if (recognition) {
-           recognition.stop();
-           recognition = null;
-        }
+        if (unsubLive) { unsubLive(); unsubLive = null; }
+        if (recognition) { recognition.stop(); recognition = null; }
         resetCall();
         return;
       }
-      // --------------------------------------------------
 
       const liveRef = doc(db, "liveCallState", callId);
-
-      if (unsubLive) {
-        unsubLive();
-        unsubLive = null;
-      }
+      if (unsubLive) { unsubLive(); unsubLive = null; }
 
       unsubLive = onSnapshot(liveRef, (liveSnap) => {
         const live = liveSnap.data() as any;
-        if (!live) {
-          resetCall();
-          return;
-        }
+        if (!live) { resetCall(); return; }
 
         const transcript: TranscriptLine[] = (live.transcript || []).map((l: any) => ({
           speaker: l.speaker,
@@ -106,6 +89,8 @@ export function useLiveCall() {
         updateTranscript(transcript);
         updateAnalysis({
           callId,
+          intent: live.intent || null,
+          isPreviousIssue: !!live.isPreviousIssue,
           sentimentScore: live.sentimentScore ?? null,
           sentimentLabel: live.sentimentLabel ?? null,
           suggestions: live.currentSuggestions || [],
@@ -124,12 +109,8 @@ export function useLiveCall() {
 
     return () => {
       unsubPresence();
-      if (unsubLive) {
-        unsubLive();
-      }
-      if (recognition) {
-        recognition.stop();
-      }
+      if (unsubLive) unsubLive();
+      if (recognition) recognition.stop();
       resetCall();
       setIncomingCall(null);
     };
@@ -137,4 +118,3 @@ export function useLiveCall() {
 
   return { incomingCall };
 }
-

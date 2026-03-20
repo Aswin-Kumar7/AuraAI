@@ -4,7 +4,8 @@ export function buildAnalysisSystemPrompt(
   kbChunks: string[],
   complianceKeywords: string[],
   language: "en" | "hi" | "hinglish" | "auto",
-  callerHistory: any[] | null
+  callerHistory: any[] | null,
+  complianceRules?: string
 ) {
   const kbText = kbChunks.join("\n---\n");
   const historyText =
@@ -33,7 +34,11 @@ CRITICAL RULES:
 Use this company knowledge base to ground your suggestions:
 ${kbText || "No additional KB provided."}
 
-Compliance keywords to watch for (high risk topics):
+COMPLIANCE RULES TO STRICTLY ENFORCE:
+${complianceRules || "No compliance rules configured."}
+Flag ANY conversation containing these keywords or violations. ALWAYS provide compliant alternatives.
+
+Legacy compliance keywords to watch for (high risk topics):
 ${keywords || "None specified"}
 
 Caller history:
@@ -44,9 +49,13 @@ You may detect the caller's language automatically but ALWAYS encode detectedLan
 
 You must return JSON in the EXACT shape:
 {
-  "intent": string,
+  "intent": "billing_issue" | "product_issue" | "return_request" | "technical_issue" | "complaint" | "general_inquiry" | "escalation" | "other",
+  "isPreviousIssue": boolean,
   "sentiment": number,
   "sentimentLabel": "calm" | "tense" | "frustrated" | "escalating" | "resolved",
+  "escalationRisk": number,
+  "escalationReason": string,
+  "interventionSuggestion": string,
   "suggestions": [
     { "text": string, "tone": string, "rank": 1 },
     { "text": string, "tone": string, "rank": 2 },
@@ -55,17 +64,24 @@ You must return JSON in the EXACT shape:
   "knowledgeSnippet": string,
   "complianceAlert": boolean,
   "complianceReason": string,
+  "complianceSeverity": "critical" | "warning" | "info",
   "liveSummary": string,
   "detectedLanguage": "en" | "hi" | "hinglish"
 }
 
 Guidance:
+- intent: Classify the customer's primary goal. Check caller history to set isPreviousIssue=true if this is a repeat issue.
+- isPreviousIssue: true if caller has called before with the same or similar issue, false otherwise.
 - sentiment: numeric score, e.g. 0-100, higher = more positive.
 - sentimentLabel: classify the current moment.
-- suggestions: three distinct next responses the agent could say, ranked 1 (best) to 3.
+- escalationRisk: score 0-1. Calculate based on: frustration level, number of times issue repeated, if they asked for manager, if sentiment declining. 0.0=no risk, 1.0=immediate escalation.
+- escalationReason: concise explanation of why escalation risk is high (e.g., "Customer frustrated on 3rd repeat of same issue").
+- interventionSuggestion: If escalationRisk > 0.5, suggest de-escalation action (e.g., "Offer to escalate to manager", "Provide immediate compensation").
+- suggestions: three distinct next responses the agent could say, ranked 1 (best) to 3. If escalationRisk > 0.5, rank de-escalation responses higher.
 - knowledgeSnippet: short extract from KB that justifies the best suggestion.
-- complianceAlert: true if conversation touches any compliance keyword or escalation risk.
-- complianceReason: brief explanation when complianceAlert is true, else empty string.
+- complianceAlert: true if conversation contains any compliance keyword OR agent is about to violate script/policy.
+- complianceReason: brief explanation when complianceAlert is true, else empty string. If agent said something risky, explain what and suggest correction.
+- complianceSeverity: "critical" if blocking a violation, "warning" if risky, "info" if informational.
 - liveSummary: a 1-sentence summary of the current call status (English).
 `;
 }

@@ -9,7 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { KBEditor } from "@/components/company/KBEditor";
-import { Loader2, Play } from "lucide-react";
+import { Loader2, Play, Settings, Cpu, Database, ShieldAlert, Languages, Zap, Activity } from "lucide-react";
+import { motion } from "framer-motion";
+import { cn } from "@/lib/utils";
 
 type Language = "en" | "hi" | "hinglish" | "auto";
 
@@ -31,31 +33,10 @@ const defaultConfig: CompanyConfig = {
   language: "en",
 };
 
-function useDebouncedSaver(config: CompanyConfig, onSave: (partial: Partial<CompanyConfig>) => Promise<void>) {
-  const [saving, setSaving] = useState(false);
-  const [savedAt, setSavedAt] = useState<Date | null>(null);
-
-  useEffect(() => {
-    if (!config) return;
-    setSaving(true);
-    const id = setTimeout(async () => {
-      await onSave(config);
-      setSaving(false);
-      setSavedAt(new Date());
-    }, 1000);
-    return () => clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(config)]);
-
-  return {
-    saving,
-    savedAt,
-  };
-}
-
 export default function SetupPage() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState<CompanyConfig>(defaultConfig);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [keywordInput, setKeywordInput] = useState("");
@@ -64,14 +45,12 @@ export default function SetupPage() {
     const load = async () => {
       try {
         const res = await fetch("/api/company/config");
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || "Failed to load config");
+        if (res.ok) {
+          const data = await res.json();
+          setConfig({ ...defaultConfig, ...data });
         }
-        const data = await res.json();
-        setConfig({ ...defaultConfig, ...data });
       } catch (e: any) {
-        toast({ title: "Error", description: e.message, variant: "destructive" });
+        toast({ title: "Ops Sync Failed", description: "Could not establish a connection to config cluster.", variant: "destructive" });
       } finally {
         setLoading(false);
       }
@@ -79,26 +58,36 @@ export default function SetupPage() {
     load();
   }, [toast]);
 
-  const debounced = useDebouncedSaver(config, async (partial) => {
+  const saveConfig = async (partial: Partial<CompanyConfig>) => {
+    setSaving(true);
     try {
       const res = await fetch("/api/company/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(partial),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Failed to save config");
+      if (res.ok) {
+        // Quiet success for "seamless" feel
+      } else {
+        throw new Error("Persist failed");
       }
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Write Conflict", description: "Failed to sync config with cloud store.", variant: "destructive" });
+    } finally {
+      setTimeout(() => setSaving(false), 800);
     }
-  });
+  };
+
+  const handleUpdate = (update: Partial<CompanyConfig>) => {
+    const next = { ...config, ...update };
+    setConfig(next);
+    saveConfig(next);
+  };
 
   const alertLabel = useMemo(() => {
-    if (config.alertThreshold < 30) return "Aggressive";
-    if (config.alertThreshold <= 60) return "Balanced";
-    return "Conservative";
+    if (config.alertThreshold < 30) return "MAX PREPAREDNESS";
+    if (config.alertThreshold <= 60) return "BALANCED OPS";
+    return "CONSERVATIVE";
   }, [config.alertThreshold]);
 
   const handleVoicePreview = async () => {
@@ -108,234 +97,174 @@ export default function SetupPage() {
       const res = await fetch("/api/voice/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          voiceId: config.voiceId,
-          text: "Hi, this is your Aura AI agent. This is a voice preview.",
-        }),
+        body: JSON.stringify({ voiceId: config.voiceId, text: "Aura AI: Voice synchronization successful." }),
       });
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to preview voice");
+      if (res.ok) {
+        const audio = new Audio(data.audio);
+        audio.play();
       }
-      const audio = new Audio(data.audio);
-      audio.play();
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
       setPreviewLoading(false);
     }
   };
 
-  const handleAddKeyword = () => {
-    const value = keywordInput.trim();
-    if (!value) return;
-    if (config.complianceKeywords.includes(value)) {
-      setKeywordInput("");
-      return;
-    }
-    setConfig((c) => ({ ...c, complianceKeywords: [...c.complianceKeywords, value] }));
-    setKeywordInput("");
-  };
-
-  const handleRemoveKeyword = (kw: string) => {
-    setConfig((c) => ({ ...c, complianceKeywords: c.complianceKeywords.filter((k) => k !== kw) }));
-  };
-
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">AI Configuration</h2>
-          <p className="text-muted-foreground">
-            Control the voice, knowledge, compliance and language settings that power Aura.
+    <div className="min-h-screen bg-[#020617] text-white p-6 lg:p-10 space-y-10 selection:bg-indigo-500/30">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2 border-b border-white/5">
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-1 bg-indigo-500 rounded-full shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
+            <h1 className="text-4xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-white/40 uppercase">
+               System Genesis
+            </h1>
+          </div>
+          <p className="text-slate-400 font-medium tracking-wide flex items-center gap-2">
+            <Cpu className="h-4 w-4 text-indigo-400" />
+            AI BEHAVIORAL PROTOCOLS • ARCHITECTURE DASHBOARD
           </p>
         </div>
-        <div className="text-xs text-muted-foreground">
-          {debounced.saving ? (
-            <span className="inline-flex items-center gap-1">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Saving...
-            </span>
-          ) : debounced.savedAt ? (
-            "Saved ✓"
-          ) : null}
+        
+        <div className="flex items-center gap-4 px-6 py-3 rounded-2xl bg-white/[0.03] border border-white/[0.06] backdrop-blur-xl">
+          <div className="text-right">
+             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Network Status</p>
+             <p className={cn("text-xs font-mono font-bold uppercase tracking-widest", saving ? "text-amber-400 animate-pulse" : "text-indigo-400")}>
+               {saving ? "UPLOADING CONFIG..." : "SYNCHRONIZED ✓"}
+             </p>
+          </div>
+          <div className="h-10 w-[1px] bg-white/10" />
+          <Settings className={cn("h-5 w-5 text-slate-400", saving && "animate-spin")} />
         </div>
       </div>
 
-      {loading ? (
-        <div className="space-y-4">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-40 w-full rounded-xl" />
-          ))}
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {/* Section 1: Voice Config */}
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle>Voice</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Deepgram Voice ID</label>
-                <Input
-                  value={config.voiceId}
-                  onChange={(e) => setConfig({ ...config, voiceId: e.target.value })}
-                  placeholder="deepgram-voice-id (optional)"
-                  className="max-w-md"
-                />
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleVoicePreview}
-                disabled={!config.voiceId || previewLoading}
-              >
-                {previewLoading ? (
-                  <span className="inline-flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Previewing...
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-2">
-                    <Play className="h-4 w-4" />
-                    Preview Voice
-                  </span>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Section 2: Knowledge Base */}
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle>Knowledge Base</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {config.knowledgeBase ? null : (
-                <p className="text-xs text-muted-foreground mb-2">
-                  No knowledge base uploaded.
-                </p>
-              )}
-              <KBEditor
-                value={config.knowledgeBase}
-                onChange={(v) => setConfig({ ...config, knowledgeBase: v })}
-                onSave={async () => {
-                  toast({ title: "KB indexed", description: "Knowledge base ingested into Pinecone." });
-                }}
-              />
-            </CardContent>
-          </Card>
-
-          {/* Section 3: Compliance Keywords */}
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle>Compliance Keywords</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-xs text-muted-foreground">
-                Add phrases that should trigger alerts, like &quot;cancel&quot;, &quot;refund&quot; or
-                &quot;legal&quot;.
-              </p>
-              <div className="flex gap-2">
-                <Input
-                  value={keywordInput}
-                  onChange={(e) => setKeywordInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleAddKeyword();
-                    }
-                  }}
-                  placeholder="Type keyword and press Enter"
-                  className="max-w-md"
-                />
-                <Button type="button" variant="outline" size="sm" onClick={handleAddKeyword}>
-                  Add
-                </Button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {config.complianceKeywords.map((kw) => (
-                  <span
-                    key={kw}
-                    className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
-                  >
-                    {kw}
-                    <button
-                      type="button"
-                      className="text-muted-foreground hover:text-destructive"
-                      onClick={() => handleRemoveKeyword(kw)}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-                {config.complianceKeywords.length === 0 && (
-                  <span className="text-xs text-muted-foreground">No keywords yet.</span>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Section 4: Alert Sensitivity */}
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle>Alert Sensitivity</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-xs text-muted-foreground">
-                Control how aggressively Aura flags compliance events.
-              </p>
-              <div className="space-y-2 max-w-md">
-                <Slider
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={[config.alertThreshold]}
-                  onValueChange={(values) => {
-                    const next = Array.isArray(values) && values.length > 0 ? values[0] : config.alertThreshold;
-                    setConfig({ ...config, alertThreshold: next });
-                  }}
-                />
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>{config.alertThreshold}</span>
-                  <span>{alertLabel}</span>
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="grid gap-8 lg:grid-cols-2"
+      >
+        {/* Profile Card */}
+        <div className="space-y-8">
+           <section className="p-8 rounded-3xl border border-white/[0.06] bg-white/[0.02] backdrop-blur-3xl shadow-2xl relative">
+              <div className="flex items-center gap-4 mb-8">
+                <div className="p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20">
+                  <Activity className="h-5 w-5 text-indigo-400" />
+                </div>
+                <div>
+                   <h3 className="text-xl font-bold tracking-tight">Enterprise Identity</h3>
+                   <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Global AI Recognition Header</p>
                 </div>
               </div>
-            </CardContent>
-          </Card>
 
-          {/* Section 5: Language */}
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle>Language</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-xs text-muted-foreground">
-                Choose how Aura understands and responds during calls.
-              </p>
-              <div className="max-w-xs">
-                <Select
-                  value={config.language}
-                  onValueChange={(v) => setConfig({ ...config, language: v as Language })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="en">English</SelectItem>
-                    <SelectItem value="hi">Hindi</SelectItem>
-                    <SelectItem value="hinglish">Hinglish</SelectItem>
-                    <SelectItem value="auto">Auto-detect</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="space-y-6">
+                 <div className="space-y-3">
+                    <label className="text-[10px] uppercase tracking-[0.2em] font-black text-slate-500 ml-1">Company Name</label>
+                    <Input 
+                      value={config.companyName}
+                      onChange={(e) => handleUpdate({ companyName: e.target.value })}
+                      placeholder="e.g. Aura Telecom Solutions"
+                      className="h-12 bg-white/[0.03] border-white/[0.08] rounded-xl focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 font-medium transition-all"
+                    />
+                 </div>
               </div>
-            </CardContent>
-          </Card>
+           </section>
+
+           <section className="p-8 rounded-3xl border border-white/[0.06] bg-white/[0.02] backdrop-blur-3xl shadow-2xl">
+              <div className="flex items-center gap-4 mb-8">
+                <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/20">
+                  <ShieldAlert className="h-5 w-5 text-rose-400" />
+                </div>
+                <div>
+                   <h3 className="text-xl font-bold tracking-tight">Compliance Protocols</h3>
+                   <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Anomaly Detection & Sensitivity</p>
+                </div>
+              </div>
+
+              <div className="space-y-8">
+                 <div className="space-y-6">
+                    <div className="flex justify-between items-end">
+                      <label className="text-[10px] uppercase tracking-[0.2em] font-black text-slate-500">Alert Sensitivity</label>
+                      <span className="text-xs font-black text-rose-400 tracking-tighter">{alertLabel}</span>
+                    </div>
+                    <Slider 
+                       value={[config.alertThreshold]}
+                       onValueChange={(vals) => handleUpdate({ alertThreshold: vals[0] })}
+                       max={100} step={1}
+                       className="[&_[role=slider]]:h-4 [&_[role=slider]]:w-4 [&_[role=slider]]:bg-rose-500 [&_[role=slider]]:border-rose-300"
+                    />
+                 </div>
+
+                 <div className="space-y-4">
+                    <div className="flex gap-3">
+                      <Input 
+                         value={keywordInput}
+                         onChange={(e) => setKeywordInput(e.target.value)}
+                         onKeyDown={(e) => e.key === "Enter" && (config.complianceKeywords.includes(keywordInput) ? setKeywordInput("") : handleUpdate({ complianceKeywords: [...config.complianceKeywords, keywordInput] }))}
+                         placeholder="Add Critical Phrase..."
+                         className="h-12 flex-1 bg-white/[0.03] border-white/[0.08] rounded-xl text-sm"
+                      />
+                      <Button className="h-12 px-6 rounded-xl bg-rose-950/30 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 transition-all font-bold text-[10px] uppercase tracking-widest">Track</Button>
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-2">
+                       {config.complianceKeywords.map(kw => (
+                         <span key={kw} className="px-3 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.08] text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 hover:border-rose-500/30 transition-colors">
+                            {kw}
+                            <button onClick={() => handleUpdate({ complianceKeywords: config.complianceKeywords.filter(k => k !== kw) })} className="hover:text-rose-400 transition-colors text-lg line-none mb-[2px]">×</button>
+                         </span>
+                       ))}
+                    </div>
+                 </div>
+              </div>
+           </section>
         </div>
-      )}
+
+        {/* Knowledge & Intel Section */}
+        <div className="space-y-8 h-full">
+           <section className="h-full p-8 rounded-3xl border border-white/[0.06] bg-white/[0.02] backdrop-blur-3xl shadow-2xl flex flex-col">
+              <div className="flex items-center gap-4 mb-8">
+                <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
+                  <Database className="h-5 w-5 text-emerald-400" />
+                </div>
+                <div>
+                   <h3 className="text-xl font-bold tracking-tight">Knowledge Cluster</h3>
+                   <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Base Intelligence Repository</p>
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-[400px]">
+                 <KBEditor
+                    value={config.knowledgeBase}
+                    onChange={(v) => handleUpdate({ knowledgeBase: v })}
+                    onSave={async () => {
+                      toast({ title: "KB Indexed", description: "Intelligence repository updated." });
+                    }}
+                 />
+              </div>
+
+              <div className="mt-8 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
+                 <div className="flex gap-4 items-center">
+                    <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                      <Languages className="h-4 w-4 text-emerald-400" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-[10px] uppercase font-black tracking-widest text-slate-500 mb-2">Native Engine Language</p>
+                      <Select value={config.language} onValueChange={(v: any) => handleUpdate({ language: v })}>
+                        <SelectTrigger className="h-10 bg-transparent border-white/[0.08] focus:ring-0">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-zinc-900 border-white/10 text-white font-bold uppercase text-[10px] tracking-widest">
+                          <SelectItem value="en">English Priming</SelectItem>
+                          <SelectItem value="hi">Hindi Priming</SelectItem>
+                          <SelectItem value="hinglish">Hinglish Direct</SelectItem>
+                          <SelectItem value="auto">System Auto-Detect</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                 </div>
+              </div>
+           </section>
+        </div>
+      </motion.div>
     </div>
   );
 }
-

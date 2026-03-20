@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
-import { connectDB } from "@/lib/mongoose";
-import { CallerMemory } from "@/lib/models/CallerMemory";
 import { z } from "zod";
+import { FieldValue } from "firebase-admin/firestore";
 
 const bodySchema = z.object({
   callId: z.string(),
@@ -48,42 +47,32 @@ export async function POST(request: Request) {
     const ctx = await getContext();
     if (!ctx.ok) return ctx.response;
 
-    if (!process.env.MONGODB_URI) {
-      return NextResponse.json({ error: "MongoDB not configured" }, { status: 500 });
-    }
-
-    await connectDB();
-
     const json = await request.json();
     const parsed = bodySchema.safeParse(json);
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.message || "Invalid payload" }, { status: 400 });
     }
 
-    const { callId, callerPhone, note } = parsed.data;
+    const { callerPhone, note } = parsed.data;
+    const db = adminDb;
 
-    await CallerMemory.updateOne(
-      { companyId: ctx.companyId, phone: callerPhone },
-      {
-        $setOnInsert: {
-          callCount: 0,
-          lastIssue: "",
-          lastResolved: false,
-        },
-        $push: {
-          notes: {
-            agentId: ctx.agentId,
-            text: note,
-            createdAt: new Date(),
-          },
-        },
-      },
-      { upsert: true }
-    );
+    // 1. Update Caller Memory in Firestore (Migrating from MongoDB)
+    const memoryRef = db.collection("callerMemory").doc(`${ctx.companyId}_${callerPhone}`);
+    
+    await memoryRef.set({
+      companyId: ctx.companyId,
+      phone: callerPhone,
+      updatedAt: FieldValue.serverTimestamp(),
+      notes: FieldValue.arrayUnion({
+        agentId: ctx.agentId,
+        text: note,
+        createdAt: new Date().toISOString()
+      })
+    }, { merge: true });
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500 });
+    console.error("Memory Note Migration Error:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
-

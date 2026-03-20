@@ -37,7 +37,7 @@ export async function GET() {
     let resolvedCount = 0;
     const issueCounts: Record<string, number> = {};
 
-    callsSnap.forEach((doc: any) => {
+    callsSnap.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot<FirebaseFirestore.DocumentData>) => {
       const data = doc.data();
       if (data.resolved) resolvedCount++;
       const issue = data.issueCategory || "Other";
@@ -58,7 +58,7 @@ export async function GET() {
 
     // In a real system, we'd check if 'agentUsed' === true
     let suggestionsUsedCount = 0;
-    auditSnap.forEach((doc: any) => {
+    auditSnap.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot<FirebaseFirestore.DocumentData>) => {
       if (doc.data().agentUsed) suggestionsUsedCount++;
     });
 
@@ -84,7 +84,7 @@ export async function GET() {
       chartData,
       topIssues,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Insights error:", error);
     return NextResponse.json({ error: "Internal Error" }, { status: 500 });
   }

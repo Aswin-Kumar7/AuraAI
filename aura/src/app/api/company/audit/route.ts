@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
-import { connectDB } from "@/lib/mongoose";
-import { AuditLog } from "@/lib/models/AuditLog";
 
 async function getCompanyContext() {
   const cookieStore = await cookies();
@@ -41,12 +39,6 @@ export async function GET(request: Request) {
     const ctx = await getCompanyContext();
     if (!ctx.ok) return ctx.response;
 
-    if (!process.env.MONGODB_URI) {
-      return NextResponse.json({ data: [], total: 0, page: 1 });
-    }
-
-    await connectDB();
-
     const url = new URL(request.url);
     const search = url.searchParams;
 
@@ -58,20 +50,38 @@ export async function GET(request: Request) {
     const limit = 25;
     const skip = (page - 1) * limit;
 
-    const query: any = { companyId: ctx.companyId };
-    if (agentId) query.agentId = agentId;
-    if (callId) query.callId = callId;
+    let queryRef: any = adminDb.collection("auditLogs").where("companyId", "==", ctx.companyId);
 
-    if (from || to) {
-      query.timestamp = {};
-      if (from) query.timestamp.$gte = new Date(from);
-      if (to) query.timestamp.$lte = new Date(to);
+    if (agentId) {
+      queryRef = queryRef.where("agentId", "==", agentId);
+    }
+    if (callId) {
+      queryRef = queryRef.where("callId", "==", callId);
+    }
+    
+    // Firestore range queries on timestamp
+    if (from) {
+      queryRef = queryRef.where("timestamp", ">=", from);
+    }
+    if (to) {
+      queryRef = queryRef.where("timestamp", "<=", to);
     }
 
-    const [logs, total] = await Promise.all([
-      AuditLog.find(query).sort({ timestamp: -1 }).skip(skip).limit(limit).lean(),
-      AuditLog.countDocuments(query),
-    ]);
+    // Count total results for pagination
+    const countSnap = await queryRef.count().get();
+    const total = countSnap.data().count;
+
+    // Fetch paginated and sorted logs
+    const logsSnap = await queryRef
+      .orderBy("timestamp", "desc")
+      .offset(skip)
+      .limit(limit)
+      .get();
+
+    const logs = logsSnap.docs.map((doc: any) => ({
+      id: doc.id,
+      ...doc.data()
+    }));
 
     return NextResponse.json({
       data: logs,
@@ -79,6 +89,7 @@ export async function GET(request: Request) {
       page,
     });
   } catch (error: any) {
+    console.error("Audit log error:", error);
     return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500 });
   }
 }

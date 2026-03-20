@@ -54,8 +54,28 @@ export function OutboundCallModal({ isOpen, onClose, onCall, isDialerReady }: Ou
   }, [isOpen]);
 
   const handleToPhoneChange = (val: string) => {
-    setToPhone(val);
-    const query = val.trim().toLowerCase();
+    const raw = val.trim();
+    const digits = raw.replace(/\D/g, "");
+
+    // Try to detect country code from input
+    const countryMatch = raw.match(/^\+(\d{1,3})/);
+    if (countryMatch) {
+      const detectedCode = `+${countryMatch[1]}`;
+      setCountryCode(detectedCode);
+      // Strip country code digits from phone display
+      const codeDigits = countryMatch[1].length;
+      if (digits.length > codeDigits) {
+        setToPhone(digits.substring(codeDigits));
+      } else {
+        setToPhone("");
+      }
+    } else {
+      // No country code prefix, just use the digits
+      setToPhone(digits);
+    }
+
+    // Filter suggestions based on original input
+    const query = raw.toLowerCase();
     if (query) {
       const filtered = contacts.filter(c => 
         c.phone.includes(query) || c.name.toLowerCase().includes(query)
@@ -69,12 +89,40 @@ export function OutboundCallModal({ isOpen, onClose, onCall, isDialerReady }: Ou
   };
 
   const selectSuggestion = (phone: string) => {
-    // If suggestion starts with country code, try to split it
-    let clean = phone.replace(/\D/g, "");
-    if (clean.startsWith(countryCode.replace("+", ""))) {
-       clean = clean.substring(countryCode.length - 1);
+    const raw = phone.trim();
+    const digits = raw.replace(/\D/g, "");
+
+    if (!digits) {
+      setToPhone("");
+      setShowSuggestions(false);
+      return;
     }
-    setToPhone(clean);
+
+    // If the selected contact has a country prefix, detect and use it
+    const countryMatch = raw.match(/^\+(\d{1,3})/);
+    if (countryMatch) {
+      const detectedCode = `+${countryMatch[1]}`;
+      const codeDigits = countryMatch[1].length;
+      setCountryCode(detectedCode);
+      // Strip the country code digits from the phone number
+      if (digits.length > codeDigits) {
+        setToPhone(digits.substring(codeDigits));
+      } else {
+        setToPhone("");
+      }
+      setShowSuggestions(false);
+      return;
+    }
+
+    // If contact phone number matches current country code prefix, strip it
+    const currentCodeDigits = countryCode.replace("+", "");
+    if (digits.startsWith(currentCodeDigits) && digits.length > currentCodeDigits.length) {
+      setToPhone(digits.substring(currentCodeDigits.length));
+    } else {
+      // No country code prefix detected, use digits as-is
+      setToPhone(digits);
+    }
+
     setShowSuggestions(false);
   };
 
@@ -158,6 +206,10 @@ export function OutboundCallModal({ isOpen, onClose, onCall, isDialerReady }: Ou
                   <button
                     key={i}
                     type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      selectSuggestion(s.phone);
+                    }}
                     onClick={() => selectSuggestion(s.phone)}
                     className="w-full flex items-center justify-between px-3 py-2 hover:bg-white/[0.05] rounded-md transition-colors text-left"
                   >

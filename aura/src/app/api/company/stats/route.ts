@@ -1,52 +1,51 @@
 import { NextResponse } from "next/server";
-import { connectDB } from "@/lib/mongoose";
-import { Call } from "@/lib/models/Call";
 import { adminDb } from "@/lib/firebase-admin";
 
 export async function GET() {
   try {
-    let agentsOnline = 0;
-    try {
-      const whitelistSnap = await adminDb.collection("whitelist").where("role", "==", "agent").get();
-      agentsOnline = whitelistSnap.size;
-    } catch (e) {
-      console.error("Firestore error:", e);
-    }
-    
-    let callsToday = 0;
-    let avgAHT = 0;
-    let avgCSAT = 0;
-    
-    try {
-      if (process.env.MONGODB_URI) {
-        await connectDB();
-        const startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
+    const db = adminDb;
+    const now = new Date();
+    const startOfDay = new Date(now.setHours(0, 0, 0, 0));
 
-        const stats = await Call.aggregate([
-          { $match: { timestamp: { $gte: startOfDay } } },
-          { 
-            $group: { 
-              _id: null, 
-              total: { $sum: 1 },
-              avgDuration: { $avg: "$duration" },
-              avgCsat: { $avg: "$csat" }
-            }
-          }
-        ]);
+    // 1. Calculate Agents Online (from agentPresence)
+    const presenceSnap = await db.collection("agentPresence")
+      .where("status", "==", "available")
+      .get();
+    const agentsOnline = presenceSnap.size;
 
-        if (stats.length > 0) {
-          callsToday = stats[0].total;
-          avgAHT = Math.round(stats[0].avgDuration || 0);
-          avgCSAT = Math.round((stats[0].avgCsat || 0) * 10) / 10;
-        }
+    // 2. Fetch Todays Calls (from Firestore)
+    const callsSnap = await db.collection("calls")
+      .where("createdAt", ">=", startOfDay.toISOString())
+      .get();
+
+    let callsToday = callsSnap.size;
+    let totalDuration = 0;
+    let totalSentiment = 0;
+    let sentimentCount = 0;
+
+    callsSnap.docs.forEach((doc) => {
+      const data = doc.data();
+      totalDuration += data.duration || 0;
+      if (data.sentimentScore !== undefined) {
+        totalSentiment += data.sentimentScore;
+        sentimentCount++;
       }
-    } catch (e) {
-      console.error("MongoDB error:", e);
-    }
+    });
 
-    return NextResponse.json({ agentsOnline, callsToday, avgAHT, avgCSAT });
+    const avgAHT = callsToday > 0 ? Math.round(totalDuration / callsToday) : 0;
+    
+    // Scale -1 to 1 into 0-5 for "CSAT" style display
+    const rawAvgSentiment = sentimentCount > 0 ? totalSentiment / sentimentCount : 0;
+    const avgCSAT = Math.round(((rawAvgSentiment + 1) * 2.5) * 10) / 10;
+
+    return NextResponse.json({ 
+      agentsOnline, 
+      callsToday, 
+      avgAHT, 
+      avgCSAT 
+    });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500 });
+    console.error("Stats Migration Error:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
