@@ -33,53 +33,28 @@ Built for **telecom, insurance, banking**, and any high-volume call center opera
 
 ```mermaid
 flowchart TB
-    subgraph AURA ["AuraAI System"]
-        direction TB
+    TW(["📞 Twilio Voice SDK"])
+    STT(["🎙️ STT Server · FastAPI :3001\nGroq Whisper · Google STT · Silence Filter"])
 
-        subgraph VOICE_LAYER ["Voice Layer"]
-            direction LR
-            TW["**Twilio Voice SDK**
-            Inbound / Outbound"]
-            STT["**Python STT Server** *(FastAPI :3001)*
-            Groq Whisper · Google STT · Silence Filter"]
+    TW -->|"WebSocket Media Stream"| STT
+    TW -->|"TwiML"| APP
+    STT -->|"Transcripts"| APP
+
+    subgraph APP ["⚡ Next.js 16 · TypeScript"]
+        direction LR
+
+        subgraph UI ["🖥️ Portals"]
+            AGENT["👤 Agent\nDashboard · Live Call\nHistory · Insights · Phonebook"]
+            ADMIN["🔧 Admin\nAgents · Analytics\nCompliance · KB Setup"]
         end
 
-        TW -->|"Twilio Media Stream (WebSocket)"| STT
-
-        subgraph NEXTJS ["Next.js 16 App (TypeScript)"]
-            direction LR
-
-            subgraph PORTALS ["Portals"]
-                direction TB
-                AGENT["**Agent Portal**
-                Dashboard · Live Call
-                Calls History · Insights
-                Phonebook · Profile"]
-                ADMIN["**Admin Portal**
-                Dashboard · Agents Mgmt
-                Analytics · Compliance · KB Setup"]
-            end
-
-            subgraph ROUTES ["API Routes"]
-                direction TB
-                R["**/api/twilio/*** — Voice hooks
-                /api/transcription/hybrid
-                **/api/ai/*** — LLM analysis
-                **/api/company/*** — Admin APIs
-                **/api/kb/*** — Knowledge base
-                **/api/auth/*** — Firebase Auth"]
-            end
-
-            subgraph DATA ["Data Layer"]
-                direction TB
-                D["Firebase Firestore *(real-time)*
-                Pinecone *(vector embeddings)*
-                Groq LLaMA 3.3 *(intelligence)*"]
-            end
+        subgraph SVC ["🔌 API Routes"]
+            API["twilio · transcription\nai · company · kb · auth"]
         end
 
-        TW -->|TwiML| NEXTJS
-        STT -->|Transcripts| NEXTJS
+        subgraph DB ["🗄️ Data Layer"]
+            DATA["Firestore · Pinecone\nGroq LLaMA 3.3"]
+        end
     end
 ```
 ---
