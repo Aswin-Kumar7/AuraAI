@@ -31,43 +31,57 @@ Built for **telecom, insurance, banking**, and any high-volume call center opera
 
 ## 🏗 Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         AURA AI SYSTEM                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌──────────────┐    Twilio Media     ┌──────────────────────┐  │
-│  │   Twilio      │───── Stream ──────▶│  Python STT Server   │  │
-│  │  Voice SDK    │    (WebSocket)      │  (FastAPI :3001)     │  │
-│  │              │                     │  ├─ Groq Whisper     │  │
-│  │  Inbound /   │                     │  ├─ Google STT       │  │
-│  │  Outbound    │                     │  └─ Silence Filter   │  │
-│  └──────┬───────┘                     └──────────┬───────────┘  │
-│         │                                        │              │
-│         │  TwiML                     Transcripts  │              │
-│         ▼                                        ▼              │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │              Next.js 16 App (TypeScript)                  │   │
-│  │  ┌────────────────┐  ┌─────────────────────────────────┐ │   │
-│  │  │  Agent Portal   │  │       API Routes                │ │   │
-│  │  │  ├ Dashboard    │  │  /api/twilio/*    Voice hooks   │ │   │
-│  │  │  ├ Live Call    │  │  /api/transcription/hybrid      │ │   │
-│  │  │  ├ Calls History│  │  /api/ai/*        LLM analysis  │ │   │
-│  │  │  ├ Insights     │  │  /api/company/*   Admin APIs    │ │   │
-│  │  │  ├ Phonebook    │  │  /api/kb/*        Knowledge     │ │   │
-│  │  │  └ Profile      │  │  /api/auth/*      Firebase Auth │ │   │
-│  │  ├────────────────┤  └─────────────────────────────────┘ │   │
-│  │  │  Admin Portal   │                                      │   │
-│  │  │  ├ Dashboard    │  ┌─────────────────────────────────┐ │   │
-│  │  │  ├ Agents Mgmt  │  │       Data Layer                │ │   │
-│  │  │  ├ Analytics    │  │  Firebase Firestore (real-time) │ │   │
-│  │  │  ├ Compliance   │  │  Pinecone (vector embeddings)   │ │   │
-│  │  │  └ KB Setup     │  │  Groq LLaMA 3.3 (intelligence)  │ │   │
-│  │  └────────────────┘  └─────────────────────────────────┘ │   │
-│  └──────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-```
+```mermaid
+flowchart TB
+    subgraph AURA ["AuraAI System"]
+        direction TB
 
+        subgraph VOICE_LAYER ["Voice Layer"]
+            direction LR
+            TW["**Twilio Voice SDK**
+            Inbound / Outbound"]
+            STT["**Python STT Server** *(FastAPI :3001)*
+            Groq Whisper · Google STT · Silence Filter"]
+        end
+
+        TW -->|"Twilio Media Stream (WebSocket)"| STT
+
+        subgraph NEXTJS ["Next.js 16 App (TypeScript)"]
+            direction LR
+
+            subgraph PORTALS ["Portals"]
+                direction TB
+                AGENT["**Agent Portal**
+                Dashboard · Live Call
+                Calls History · Insights
+                Phonebook · Profile"]
+                ADMIN["**Admin Portal**
+                Dashboard · Agents Mgmt
+                Analytics · Compliance · KB Setup"]
+            end
+
+            subgraph ROUTES ["API Routes"]
+                direction TB
+                R["**/api/twilio/*** — Voice hooks
+                /api/transcription/hybrid
+                **/api/ai/*** — LLM analysis
+                **/api/company/*** — Admin APIs
+                **/api/kb/*** — Knowledge base
+                **/api/auth/*** — Firebase Auth"]
+            end
+
+            subgraph DATA ["Data Layer"]
+                direction TB
+                D["Firebase Firestore *(real-time)*
+                Pinecone *(vector embeddings)*
+                Groq LLaMA 3.3 *(intelligence)*"]
+            end
+        end
+
+        TW -->|TwiML| NEXTJS
+        STT -->|Transcripts| NEXTJS
+    end
+```
 ---
 
 ## ✨ Key Features
