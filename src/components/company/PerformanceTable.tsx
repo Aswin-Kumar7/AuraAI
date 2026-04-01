@@ -70,15 +70,15 @@ export default function PerformanceTable({ data }: PerformanceTableProps) {
   };
 
   return (
-    <div className="border rounded-lg">
+    <div className="rounded-2xl border border-slate-200/80 bg-white/90 backdrop-blur shadow-sm overflow-hidden">
       <Table>
         <TableHeader>
-          <TableRow>
+          <TableRow className="bg-slate-50/80">
             <TableHead>
               <Button
                 variant="ghost"
                 onClick={() => handleSort('agentName')}
-                className="h-auto p-0 font-semibold hover:bg-transparent"
+                className="h-auto p-0 font-semibold text-slate-600 hover:text-slate-900 hover:bg-transparent"
               >
                 Agent
                 {getSortIcon('agentName')}
@@ -88,7 +88,7 @@ export default function PerformanceTable({ data }: PerformanceTableProps) {
               <Button
                 variant="ghost"
                 onClick={() => handleSort('calls')}
-                className="h-auto p-0 font-semibold hover:bg-transparent"
+                className="h-auto p-0 font-semibold text-slate-600 hover:text-slate-900 hover:bg-transparent"
               >
                 Calls
                 {getSortIcon('calls')}
@@ -98,7 +98,7 @@ export default function PerformanceTable({ data }: PerformanceTableProps) {
               <Button
                 variant="ghost"
                 onClick={() => handleSort('avgAHT')}
-                className="h-auto p-0 font-semibold hover:bg-transparent"
+                className="h-auto p-0 font-semibold text-slate-600 hover:text-slate-900 hover:bg-transparent"
               >
                 Avg AHT
                 {getSortIcon('avgAHT')}
@@ -108,7 +108,7 @@ export default function PerformanceTable({ data }: PerformanceTableProps) {
               <Button
                 variant="ghost"
                 onClick={() => handleSort('avgCSAT')}
-                className="h-auto p-0 font-semibold hover:bg-transparent"
+                className="h-auto p-0 font-semibold text-slate-600 hover:text-slate-900 hover:bg-transparent"
               >
                 CSAT
                 {getSortIcon('avgCSAT')}
@@ -118,7 +118,7 @@ export default function PerformanceTable({ data }: PerformanceTableProps) {
               <Button
                 variant="ghost"
                 onClick={() => handleSort('suggestionsUsedRate')}
-                className="h-auto p-0 font-semibold hover:bg-transparent"
+                className="h-auto p-0 font-semibold text-slate-600 hover:text-slate-900 hover:bg-transparent"
               >
                 Suggestions Used %
                 {getSortIcon('suggestionsUsedRate')}
@@ -128,7 +128,7 @@ export default function PerformanceTable({ data }: PerformanceTableProps) {
               <Button
                 variant="ghost"
                 onClick={() => handleSort('resolvedRate')}
-                className="h-auto p-0 font-semibold hover:bg-transparent"
+                className="h-auto p-0 font-semibold text-slate-600 hover:text-slate-900 hover:bg-transparent"
               >
                 FCR %
                 {getSortIcon('resolvedRate')}
@@ -146,7 +146,7 @@ export default function PerformanceTable({ data }: PerformanceTableProps) {
           ) : (
             sortedData.map((stat) => (
               <TableRow key={stat.agentId}>
-                <TableCell className="font-medium">{stat.agentName}</TableCell>
+                <TableCell className="font-medium text-slate-800">{stat.agentName}</TableCell>
                 <TableCell>{stat.calls}</TableCell>
                 <TableCell>{formatAHT(stat.avgAHT)}</TableCell>
                 <TableCell>{stat.avgCSAT ? `${stat.avgCSAT}/5` : "N/A"}</TableCell>
