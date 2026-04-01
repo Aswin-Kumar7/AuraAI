@@ -61,7 +61,7 @@ export default function AgentLayout({ children }: { children: ReactNode }) {
   if (!user || role !== "agent") return null;
 
   return (
-    <div className="h-screen flex bg-slate-50 text-foreground overflow-hidden">
+    <div className="h-screen flex bg-gradient-to-br from-slate-50 via-slate-50 to-indigo-50/40 dark:from-slate-950 dark:via-slate-950 dark:to-indigo-950/20 text-foreground overflow-hidden">
       <AgentSidebar />
       <main className="flex-1 overflow-y-auto">{children}</main>
     </div>

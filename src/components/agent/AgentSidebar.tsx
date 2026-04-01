@@ -60,24 +60,24 @@ export function AgentSidebar() {
   };
 
   return (
-    <aside className="w-[236px] h-screen flex flex-col border-r border-slate-200 bg-white/95 backdrop-blur shrink-0">
+    <aside className="w-[236px] h-screen flex flex-col border-r border-slate-200/80 bg-white/85 backdrop-blur-xl dark:bg-slate-950/80 dark:border-slate-800 shrink-0">
       {/* Branding */}
-      <div className="px-5 pt-5 pb-4 border-b border-slate-100">
+      <div className="px-5 pt-5 pb-4 border-b border-slate-100/90 dark:border-slate-800">
         <div className="flex items-center gap-3">
           <div className="relative h-9 w-9 rounded-xl bg-gradient-to-br from-indigo-600 to-blue-500 flex items-center justify-center shadow-md shadow-indigo-500/30">
             <Zap className="h-4 w-4 text-white" />
             <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-emerald-400 border border-white" />
           </div>
           <div className="leading-tight">
-            <p className="text-sm font-bold tracking-tight text-slate-900">Aura AI</p>
-            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400 font-semibold">Voice Workspace</p>
+            <p className="text-sm font-bold tracking-tight text-slate-900 dark:text-slate-100">Aura AI</p>
+            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500 font-semibold">Voice Workspace</p>
           </div>
         </div>
       </div>
 
       {/* Agent Status */}
       <div className="px-4 py-4">
-        <div className="rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-3.5">
+        <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-gradient-to-b from-white to-slate-50 dark:from-slate-900 dark:to-slate-900/60 p-3.5 shadow-sm">
           <div className="flex items-center gap-2.5">
             <div className="relative shrink-0">
               <div className="h-9 w-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white text-sm font-semibold">
@@ -91,13 +91,13 @@ export function AgentSidebar() {
               />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-slate-800 truncate">{profileName}</p>
-              <p className="text-[10px] text-slate-400 truncate">Agent Console</p>
+              <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{profileName}</p>
+              <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate">Agent Console</p>
             </div>
             <span
               className={cn(
                 "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold",
-                callId ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"
+                callId ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300"
               )}
             >
               <span className={cn("h-1.5 w-1.5 rounded-full", callId ? "bg-emerald-500" : "bg-slate-400")} />
@@ -118,14 +118,14 @@ export function AgentSidebar() {
               className={cn(
                 "flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-150",
                 isActive
-                  ? "bg-indigo-600 text-white shadow-sm shadow-indigo-500/20"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/25"
+                  : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/70"
               )}
             >
               <Icon
                 className={cn(
                   "h-4 w-4 shrink-0",
-                  isActive ? "text-white" : "text-slate-400"
+                  isActive ? "text-white" : "text-slate-400 dark:text-slate-500"
                 )}
               />
               {label}
@@ -138,10 +138,10 @@ export function AgentSidebar() {
       </nav>
 
       {/* Sign Out */}
-      <div className="p-3 mt-auto border-t border-slate-100 bg-white/80">
+      <div className="p-3 mt-auto border-t border-slate-100 dark:border-slate-800 bg-white/70 dark:bg-slate-950/70">
         <button
           onClick={handleSignOut}
-          className="flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-[13px] font-medium text-slate-500 hover:text-slate-900 hover:bg-slate-100 border border-transparent hover:border-slate-200 transition-all duration-150"
+          className="flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-[13px] font-medium text-slate-500 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/70 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition-all duration-150"
         >
           <LogOut className="h-4 w-4" />
           Sign Out
