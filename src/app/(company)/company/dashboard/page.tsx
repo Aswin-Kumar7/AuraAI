@@ -68,11 +68,11 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 p-6 lg:p-8 space-y-8">
+    <div className="min-h-screen text-slate-900 p-6 lg:p-8 space-y-8">
       {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-4 border-b border-slate-200">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-5 border-b border-slate-200/80">
         <div className="space-y-1">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-slate-900">
             Command Center
           </h1>
           <p className="text-sm text-slate-500 flex items-center gap-2">
@@ -81,7 +81,7 @@ export default function DashboardPage() {
           </p>
         </div>
         
-        <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white border border-slate-200 shadow-sm">
+        <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/90 backdrop-blur border border-slate-200 shadow-sm">
           <div className="text-right">
              <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-widest">System Health</p>
              <p className="text-sm font-bold text-emerald-600">Operational</p>
@@ -133,9 +133,9 @@ export default function DashboardPage() {
         <div className="grid gap-8 lg:grid-cols-5">
           <motion.div 
             variants={itemVariants}
-            className="lg:col-span-3 rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm"
+            className="lg:col-span-3 rounded-2xl border border-slate-200/80 bg-white/90 backdrop-blur overflow-hidden shadow-sm"
           >
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+            <div className="px-6 py-4 border-b border-slate-200/80 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white">
               <h3 className="font-semibold text-slate-800 flex items-center gap-2.5">
                 <Clock className="h-4 w-4 text-indigo-600" />
                 Recent Calls
@@ -183,9 +183,9 @@ export default function DashboardPage() {
           {/* Active Agents Card */}
           <motion.div 
             variants={itemVariants}
-            className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm"
+            className="lg:col-span-2 rounded-2xl border border-slate-200/80 bg-white/90 backdrop-blur overflow-hidden shadow-sm"
           >
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+            <div className="px-6 py-4 border-b border-slate-200/80 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white">
               <h3 className="font-semibold text-slate-800 flex items-center gap-2.5">
                 <ShieldCheck className="h-4 w-4 text-emerald-600" />
                 Agent Performance
