@@ -10,26 +10,34 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo (full history)
+      # 📥 Checkout full repo history
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 🔍 1. TruffleHog - Full Git History
-      - name: TruffleHog (Git History)
+      # 🔍 1. TruffleHog - Scan full Git history
+      - name: TruffleHog Scan (Git History)
         uses: trufflesecurity/trufflehog@main
         with:
           scan: git
 
-      # 🔍 2. TruffleHog - Filesystem Scan
-      - name: TruffleHog (Filesystem)
+      # 🔍 2. TruffleHog - Scan current filesystem
+      - name: TruffleHog Scan (Filesystem)
         uses: trufflesecurity/trufflehog@main
         with:
           scan: filesystem
           path: .
 
-      # 🔍 3. Gitleaks (Extra layer)
+      # 🔍 3. Gitleaks - Secret scanning (fixed for v2)
       - name: Gitleaks Scan
         uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ✅ Optional: Upload results to GitHub Security tab (advanced)
+      - name: Upload SARIF Report (optional)
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
         with:
-          args: detect --verbose --redact
+          sarif_file: results.sarif
